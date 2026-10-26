@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Do Not Disturb</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card-bg: #141b24;
+      --border: #1d2634;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --primary: #64ffda;
+      --primary-dim: rgba(100, 255, 218, 0.12);
+      --danger: #ef4444;
+    }
+    body {
+      margin: 0;
+      padding: 16px;
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--primary-dim);
+      border: 1px solid rgba(100, 255, 218, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+    }
+    .header h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .header span {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .status-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #64748b;
+    }
+    .badge-dot.active {
+      background: var(--primary);
+      box-shadow: 0 0 8px var(--primary);
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .stat-val {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 9px;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+    }
+    .btn-primary {
+      background: var(--primary-dim);
+      color: var(--primary);
+      border-color: rgba(100, 255, 218, 0.3);
+    }
+    .btn-primary:hover {
+      background: rgba(100, 255, 218, 0.2);
+    }
+    .btn-emergency {
+      margin-top: 8px;
+      background: transparent;
+      color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+    .btn-emergency:hover {
+      background: rgba(239, 68, 68, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand-icon">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="12" cy="12" r="8"/>
+        <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
+      </svg>
+    </div>
+    <div>
+      <h2>Do Not Disturb</h2>
+      <span>Focus companion</span>
+    </div>
+  </div>
+
+  <div class="status-card">
+    <div class="badge">
+      <span class="badge-dot" id="shieldDot"></span>
+      <span id="shieldText">Ready</span>
+    </div>
+    <div class="stat-row">
+      <span>Blocked Sites</span>
+      <span class="stat-val" id="blockedCount">0</span>
+    </div>
+    <div class="stat-row">
+      <span>Session</span>
+      <span class="stat-val" id="sessionMode">—</span>
+    </div>
+  </div>
+
+  <a href="http://localhost:3000" target="_blank" class="btn btn-primary" id="openDashboardBtn">
+    Open App
+  </a>
+
+  <button class="btn btn-emergency" id="emergencyUnblockBtn" style="display: none;">
+    Pause Blocking
+  </button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

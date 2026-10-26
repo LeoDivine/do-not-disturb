@@ -1,0 +1,298 @@
+// This is your Prisma schema file for Do Not Disturb.
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum SessionMode {
+  FOCUS
+  SHORT_BREAK
+  LONG_BREAK
+}
+
+enum SessionStatus {
+  RUNNING
+  PAUSED
+  COMPLETED
+  STOPPED
+  CANCELLED
+}
+
+enum BlockingBehavior {
+  STRICT // Keep blocking enforced even when timer is paused
+  SUSPEND // Temporarily suspend blocking rules while paused
+}
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+// =============================================================================
+// USER & SETTINGS
+// =============================================================================
+
+model User {
+  id              String             @id @default(cuid())
+  email           String?            @unique
+  name            String?
+  passwordHash    String?
+  avatarUrl       String?
+  settings        UserSettings?
+  sessions        FocusSession[]
+  blockedWebsites BlockedWebsite[]
+  deflections     DeflectionEvent[]
+  tags            Tag[]
+  dailyMetrics    DailyFocusMetric[]
+  shortcuts       UserShortcut[]
+  presets         TimerPreset[]
+  streak          UserStreak?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@map("users")
+}
+
+model UserSettings {
+  id     String  @id @default(cuid())
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Timer duration configurations (in minutes)
+  deepFocusMinutes  Int @default(25)
+  shortBreakMinutes Int @default(5)
+  longBreakMinutes  Int @default(15)
+  longBreakCadence  Int @default(4) // Focus sessions before a long break
+
+  // Automation flags
+  autoStartBreaks Boolean @default(true)
+  autoStartFocus  Boolean @default(false)
+
+  // Website blocking policies
+  strictBlocking    BlockingBehavior @default(STRICT)
+  blockDuringBreaks Boolean          @default(false)
+
+  // Audio and Ambience
+  acousticPreset   String  @default("rain") // "rain", "binaural", "space", "waves", "forest"
+  bgAmbienceVolume Int     @default(65) // 0 - 100 percentage
+  completionChime  Boolean @default(true)
+
+  // Appearance
+  theme ThemePreference @default(SYSTEM)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_settings")
+}
+
+// =============================================================================
+// FOCUS SESSIONS & TIMERS
+// =============================================================================
+
+model FocusSession {
+  id          String  @id @default(cuid())
+  sessionCode String? // Formatted code for display, e.g. "#SESS-4029"
+  userId      String?
+  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  mode     SessionMode   @default(FOCUS)
+  status   SessionStatus @default(COMPLETED)
+  protocol String? // e.g. "Deep Focus (25m)", "Quick Sprint (15m)", "Long Focus (60m)"
+  target   String? // Display target e.g. "25:00 / 25:00"
+
+  goal   String? // Primary focus anchor e.g. "Finish presentation slides"
+  intent String? // Milestone or immediate intent
+
+  plannedDuration   Int // Planned session duration in seconds (e.g. 1500 for 25 mins)
+  actualDuration    Int // Total elapsed focused seconds
+  remainingDuration Int? // Remaining seconds when paused or ended early
+
+  cycle       Int @default(1)
+  totalCycles Int @default(4)
+
+  deflectionsCount Int @default(0) // Count of distracted website attempts deflected
+
+  startedAt   DateTime  @default(now())
+  endsAt      DateTime?
+  pausedAt    DateTime?
+  completedAt DateTime?
+
+  notes String?
+
+  tagId String?
+  tag   Tag?    @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  deflectionEvents DeflectionEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, startedAt])
+  @@index([status])
+  @@index([mode])
+  @@index([startedAt])
+  @@map("focus_sessions")
+}
+
+// =============================================================================
+// BLOCKED WEBSITES & DEFLECTIONS
+// =============================================================================
+
+model BlockedWebsite {
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Only the website URL is required to block
+  url String // Website URL (e.g. "youtube.com", "reddit.com", "x.com")
+
+  deflections Int     @default(0) // Cumulative deflection count
+  active      Boolean @default(true)
+  icon        String  @default("link") // Icon id: "video", "hash", "chat", "camera", "news", etc.
+
+  deflectionLogs DeflectionEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([url])
+  @@index([active])
+  @@map("blocked_websites")
+}
+
+model DeflectionEvent {
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessionId String?
+  session   FocusSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  websiteId String?
+  website   BlockedWebsite? @relation(fields: [websiteId], references: [id], onDelete: SetNull)
+
+  url  String // URL attempted e.g. "youtube.com" or "reddit.com"
+  path String? // URL path if captured e.g. "/shorts", "/notifications"
+
+  attemptedAt DateTime @default(now())
+
+  @@index([userId, attemptedAt])
+  @@index([sessionId])
+  @@index([url])
+  @@index([attemptedAt])
+  @@map("deflection_events")
+}
+
+// =============================================================================
+// TAGS & CATEGORIES
+// =============================================================================
+
+model Tag {
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name  String // e.g. "Deep Work", "Research", "Coding", "Writing"
+  color String? // Hex color, e.g. "#0f766e"
+  icon  String?
+
+  sessions FocusSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("tags")
+}
+
+// =============================================================================
+// DAILY AGGREGATED METRICS
+// =============================================================================
+
+model DailyFocusMetric {
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date                DateTime @db.Date
+  totalFocusSeconds   Int      @default(0)
+  completedSessions   Int      @default(0)
+  interruptedSessions Int      @default(0)
+  totalDeflections    Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([date])
+  @@map("daily_focus_metrics")
+}
+
+// =============================================================================
+// KEYBOARD SHORTCUTS & CUSTOM PRESETS
+// =============================================================================
+
+model UserShortcut {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  actionType String // e.g. "toggleTimer", "resetTimer", "skipTimer", "modeFocus", "modeShort", "modeLong", etc.
+  keys       String[] // e.g. ["Space"], ["R"], ["Ctrl", "Alt", "F"]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, actionType])
+  @@index([userId])
+  @@map("user_shortcuts")
+}
+
+model TimerPreset {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name         String // e.g. "Deep Focus (50/10)", "Ultradian Flow (90/20)"
+  focusMinutes Int     @default(25)
+  shortBreak   Int     @default(5)
+  longBreak    Int     @default(15)
+  cycles       Int     @default(4)
+  isDefault    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("timer_presets")
+}
+
+model UserStreak {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  currentStreak   Int       @default(0)
+  longestStreak   Int       @default(0)
+  lastActiveDate  DateTime? @db.Date
+  totalFocusHours Float     @default(0.0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_streaks")
+}

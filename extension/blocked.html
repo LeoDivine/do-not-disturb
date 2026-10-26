@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A Quiet Pause — Do Not Disturb</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #2dd4bf;
+      --accent-rgb: 45, 212, 191;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Continuous Background Image Layers */
+    .ambient-container {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .ambient-slide {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      opacity: 0;
+      transform: scale(1);
+      transition: opacity 2400ms cubic-bezier(0.4, 0, 0.2, 1), transform 9000ms ease-out;
+      will-change: opacity, transform;
+    }
+
+    .ambient-slide.active {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+
+    .ambient-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom, rgba(11, 15, 23, 0.75) 0%, rgba(11, 15, 23, 0.6) 50%, rgba(11, 15, 23, 0.85) 100%);
+      backdrop-filter: blur(2px);
+    }
+
+    /* Layout structure */
+    header, main, footer {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.7);
+      text-decoration: none;
+    }
+
+    .brand-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-pause-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(8px);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-pause-toggle:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+    }
+
+    .counter {
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: rgba(255, 255, 255, 0.4);
+      letter-spacing: 0.08em;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px 20px;
+    }
+
+    .domain-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(8px);
+      margin-bottom: 32px;
+    }
+
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+
+    /* Minimalist Breathing Ring */
+    .breathing-area {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 240px;
+      height: 240px;
+      margin: 12px 0 24px;
+    }
+
+    .breathing-halo {
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      border: 1px solid rgba(var(--accent-rgb), 0.3);
+      transition: transform 4000ms cubic-bezier(0.4, 0, 0.2, 1), opacity 4000ms ease;
+      pointer-events: none;
+    }
+
+    .breathing-ring {
+      position: absolute;
+      width: 170px;
+      height: 170px;
+      border-radius: 50%;
+      border: 1px dashed rgba(var(--accent-rgb), 0.5);
+      transition: transform 4000ms cubic-bezier(0.4, 0, 0.2, 1), opacity 4000ms ease;
+      pointer-events: none;
+    }
+
+    .timer-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+    }
+
+    .timer-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+
+    .timer-text {
+      font-size: 42px;
+      font-weight: 200;
+      letter-spacing: -0.03em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #ffffff;
+      line-height: 1;
+    }
+
+    .breath-phase {
+      font-size: 14px;
+      font-weight: 400;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      margin-top: 18px;
+      margin-bottom: 8px;
+      min-height: 22px;
+      transition: opacity 800ms ease;
+    }
+
+    .explanation {
+      font-size: 13px;
+      color: var(--text-muted);
+      max-width: 360px;
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+
+    /* Actions (Single Line, No Wrap) */
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: nowrap;
+      white-space: nowrap;
+      justify-content: center;
+      max-width: 100%;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 24px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #00201d;
+      background: var(--accent);
+      text-decoration: none;
+      transition: transform 0.2s, background 0.2s;
+      border: none;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .btn-primary:hover {
+      transform: scale(1.03);
+      background: #5eead4;
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 20px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.75);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      text-decoration: none;
+      transition: all 0.2s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+    }
+
+    .shortcut-hint {
+      font-size: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.3);
+      margin-top: 24px;
+    }
+
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .image-indicators {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      overflow-x: auto;
+      max-width: 220px;
+      padding: 2px 0;
+    }
+
+    .indicator-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.25);
+      transition: all 0.5s ease;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .indicator-dot.active {
+      width: 16px;
+      background: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <!-- Ambient Continuous Image Backgrounds -->
+  <div class="ambient-container" id="ambientContainer"></div>
+  <div class="ambient-overlay"></div>
+
+  <!-- Top Bar -->
+  <header>
+    <a href="http://localhost:3000" class="brand">
+      <span class="brand-dot"></span>
+      <span>Do Not Disturb</span>
+    </a>
+    <div class="header-controls">
+      <button class="btn-pause-toggle" id="pauseBtn" title="Press Space to toggle">
+        <span id="pauseIcon">⏸</span>
+        <span id="pauseText">Pause</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Focal Area -->
+  <main>
+    <div class="domain-pill">
+      <span class="pulse-dot"></span>
+      <span id="blockedDomain">This site is paused</span>
+    </div>
+
+    <!-- Breathing Ring -->
+    <div class="breathing-area">
+      <div class="breathing-halo" id="halo"></div>
+      <div class="breathing-ring" id="ring"></div>
+      <div class="timer-center">
+        <span class="timer-label">Focus Active</span>
+        <span class="timer-text" id="focusTime">25:00</span>
+      </div>
+    </div>
+
+    <div class="breath-phase" id="breathPhase">Breathe in slowly</div>
+    <p class="explanation">Take a gentle pause. Protect your attention and remain in your flow.</p>
+
+    <div class="actions">
+      <a href="http://localhost:3000" class="btn-primary" id="returnBtn">Return to Focus</a>
+      <a href="http://localhost:3000/blocklist" class="btn-secondary">Manage List</a>
+    </div>
+
+    <span class="shortcut-hint">Press Space to pause/play • Arrow keys change scenery • Esc to return</span>
+  </main>
+
+  <!-- Footer with continuous image indicators -->
+  <footer>
+    <span id="imageTitle">Still Lake &amp; Mist</span>
+    <div class="image-indicators" id="indicators"></div>
+  </footer>
+
+  <script>
+    // 20 Curated high quality serene images
+    const IMAGES = [
+      { url: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=2000&q=80", title: "Still Lake & Mist" },
+      { url: "https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&w=2000&q=80", title: "Sunlit Forest" },
+      { url: "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=2000&q=80", title: "Alpine Quiet" },
+      { url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=2000&q=80", title: "Ocean Tide" },
+      { url: "https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?auto=format&fit=crop&w=2000&q=80", title: "Misty Pines" },
+      { url: "https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=2000&q=80", title: "Quiet Canopy" },
+      { url: "https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?auto=format&fit=crop&w=2000&q=80", title: "Desert Twilight" },
+      { url: "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?auto=format&fit=crop&w=2000&q=80", title: "Calm Fjord" },
+      { url: "https://images.unsplash.com/photo-1499002238440-d264edd596ec?auto=format&fit=crop&w=2000&q=80", title: "Lavender Horizon" },
+      { url: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=2000&q=80", title: "Silent Peaks" },
+      { url: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2000&q=80", title: "Golden Dawn" },
+      { url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=2000&q=80", title: "Emerald Lake" },
+      { url: "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?auto=format&fit=crop&w=2000&q=80", title: "Verdant Valley" },
+      { url: "https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=2000&q=80", title: "Starlit Mountain" },
+      { url: "https://images.unsplash.com/photo-1426604966848-d7adac402bff?auto=format&fit=crop&w=2000&q=80", title: "Valley Mist" },
+      { url: "https://images.unsplash.com/photo-1470240731273-7821a6eeb6bd?auto=format&fit=crop&w=2000&q=80", title: "Soft Meadow" },
+      { url: "https://images.unsplash.com/photo-1498429089284-41f8cf3ffd39?auto=format&fit=crop&w=2000&q=80", title: "Misty Ridge" },
+      { url: "https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&w=2000&q=80", title: "Forest Solitude" },
+      { url: "https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=2000&q=80", title: "Northern Light" },
+      { url: "https://images.unsplash.com/photo-1505118380757-91f5f5632de0?auto=format&fit=crop&w=2000&q=80", title: "Azure Coast" }
+    ];
+
+    const container = document.getElementById("ambientContainer");
+    const indicators = document.getElementById("indicators");
+    const imageTitle = document.getElementById("imageTitle");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const pauseIcon = document.getElementById("pauseIcon");
+    const pauseText = document.getElementById("pauseText");
+
+    let isPaused = false;
+    let timerId = null;
+
+    // Dual-layer DOM for optimal performance across all 20 images
+    let layerA = document.createElement("div");
+    layerA.className = "ambient-slide active";
+    layerA.style.backgroundImage = `url('${IMAGES[0].url}')`;
+    container.appendChild(layerA);
+
+    let layerB = document.createElement("div");
+    layerB.className = "ambient-slide";
+    container.appendChild(layerB);
+
+    let activeLayer = layerA;
+    let nextLayer = layerB;
+    let currentIdx = 0;
+
+    // Create minimal indicator dots
+    IMAGES.forEach((img, i) => {
+      const dot = document.createElement("div");
+      dot.className = "indicator-dot" + (i === 0 ? " active" : "");
+      dot.onclick = () => setSlide(i);
+      indicators.appendChild(dot);
+    });
+
+    // Dynamic preloader
+    function preload(idx) {
+      const img = new Image();
+      img.src = IMAGES[(idx + IMAGES.length) % IMAGES.length].url;
+    }
+    preload(1);
+    preload(2);
+
+    function setSlide(newIdx) {
+      if (newIdx === currentIdx) return;
+      indicators.children[currentIdx].classList.remove("active");
+      currentIdx = (newIdx + IMAGES.length) % IMAGES.length;
+      indicators.children[currentIdx].classList.add("active");
+
+      imageTitle.innerText = IMAGES[currentIdx].title;
+
+      // Swap layers
+      nextLayer.style.backgroundImage = `url('${IMAGES[currentIdx].url}')`;
+      nextLayer.classList.add("active");
+      activeLayer.classList.remove("active");
+
+      const temp = activeLayer;
+      activeLayer = nextLayer;
+      nextLayer = temp;
+
+      preload(currentIdx + 1);
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      if (isPaused) {
+        clearInterval(timerId);
+        timerId = null;
+        pauseIcon.innerText = "▶";
+        pauseText.innerText = "Resume";
+      } else {
+        pauseIcon.innerText = "⏸";
+        pauseText.innerText = "Pause";
+        startRotation();
+      }
+    }
+
+    pauseBtn.onclick = togglePause;
+
+    function startRotation() {
+      if (timerId) clearInterval(timerId);
+      timerId = setInterval(() => {
+        if (!isPaused) {
+          setSlide(currentIdx + 1);
+        }
+      }, 7500);
+    }
+    startRotation();
+
+    // Parse blocked domain parameter
+    const params = new URLSearchParams(window.location.search);
+    const domain = params.get("blocked");
+    if (domain) {
+      const clean = domain.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0];
+      document.getElementById("blockedDomain").innerText = `${clean} is paused`;
+    }
+
+    // Breathing rhythm
+    const breathPhases = [
+      { text: "Breathe in slowly", scale: 1.25, opacity: 0.9 },
+      { text: "Hold gently", scale: 1.25, opacity: 0.7 },
+      { text: "Breathe out smoothly", scale: 1.0, opacity: 0.5 },
+      { text: "Rest peacefully", scale: 1.0, opacity: 0.3 }
+    ];
+    let breathIdx = 0;
+    const halo = document.getElementById("halo");
+    const ring = document.getElementById("ring");
+    const breathText = document.getElementById("breathPhase");
+
+    function updateBreath() {
+      const p = breathPhases[breathIdx];
+      breathText.innerText = p.text;
+      halo.style.transform = `scale(${p.scale})`;
+      halo.style.opacity = p.opacity * 0.4;
+      ring.style.transform = `scale(${p.scale})`;
+      ring.style.opacity = p.opacity * 0.7;
+      breathIdx = (breathIdx + 1) % breathPhases.length;
+    }
+    updateBreath();
+    setInterval(updateBreath, 4000);
+
+    // Keyboard shortcuts: Space toggles pause; Arrow keys change scenery; Esc returns
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        togglePause();
+      } else if (e.key === "Escape" || e.key === "Enter") {
+        window.location.href = "http://localhost:3000";
+      } else if (e.key === "ArrowRight") {
+        setSlide(currentIdx + 1);
+      } else if (e.key === "ArrowLeft") {
+        setSlide(currentIdx - 1);
+      }
+    });
+
+    let isRedirecting = false;
+
+    function checkSessionStatus(session) {
+      const now = Date.now();
+      const isRunning = session && session.status === "running" && session.endsAt && session.endsAt > now;
+
+      if (!isRunning && domain && !isRedirecting) {
+        isRedirecting = true;
+        let clean = decodeURIComponent(domain).trim().replace(/^["']|["']$/g, "");
+        if (!/^https?:\/\//i.test(clean)) {
+          clean = "https://" + clean;
+        }
+        if (!clean.includes("blocked.html")) {
+          // Tell background service worker to lift all rules
+          if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+            chrome.runtime.sendMessage({ type: "DND_STOP_SESSION" }, () => {
+              setTimeout(() => {
+                window.location.replace(clean);
+              }, 150);
+            });
+          } else {
+            setTimeout(() => {
+              window.location.replace(clean);
+            }, 150);
+          }
+        }
+      }
+    }
+
+    // Check extension session timer if available & redirect when timer is paused
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["dnd_session"], (data) => {
+        checkSessionStatus(data.dnd_session);
+        if (data.dnd_session && data.dnd_session.endsAt) {
+          function updateTimer() {
+            const left = Math.max(0, Math.floor((data.dnd_session.endsAt - Date.now()) / 1000));
+            const m = Math.floor(left / 60).toString().padStart(2, "0");
+            const s = (left % 60).toString().padStart(2, "0");
+            document.getElementById("focusTime").innerText = `${m}:${s}`;
+          }
+          updateTimer();
+          setInterval(updateTimer, 1000);
+        }
+      });
+
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === "local" && changes.dnd_session) {
+          checkSessionStatus(changes.dnd_session.newValue);
+        }
+      });
+    }
+  </script>
+</body>
+</html>

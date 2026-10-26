@@ -1,26 +1,166 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-surface: #f8fafc;
+  --color-surface-dim: #f1f5f9;
+  --color-surface-bright: #ffffff;
+  --color-surface-container: #f1f5f9;
+  --color-surface-container-high: #e2e8f0;
+
+  --color-background: #faf8ff;
+  --color-on-background: #131b2e;
+  --color-on-surface: #0f172a;
+  --color-on-surface-variant: #64748b;
+
+  --color-primary: var(--mode-accent);
+  --color-primary-container: var(--mode-container);
+  --color-primary-fixed: var(--mode-glow);
+  --color-primary-glow: var(--mode-glow);
+  --color-primary-border: var(--mode-border);
+  --color-primary-text: var(--mode-text);
+
+  --color-secondary: #3b665f;
+  --color-secondary-container: #bdece2;
+  --color-tertiary: #924628;
+  --color-tertiary-container: #b05e3d;
+
+  --color-dark-bg: #0c1017;
+  --color-dark-surface: #101620;
+  --color-dark-surface-elevated: #141b24;
+  --color-dark-border: #1d2634;
+  --color-dark-muted: #7e8c9f;
+
+  --font-sans: var(--font-geist-sans), Inter, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-main: #faf8ff;
+  --text-main: #0f172a;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --well-bg: #f8fafc;
+  --well-border: #e2e8f0;
+  --muted-text: #64748b;
+  --track-bg: #e2e8f0;
+  --divider: #e2e8f0;
+
+  /* Default Focus Mode Variables (Light - darker variant of #64ffda) */
+  --mode-accent: #0f766e;
+  --mode-glow: #2dd4bf;
+  --mode-container: #ccfbf1;
+  --mode-border: #99f6e4;
+  --mode-text: #0f766e;
+  --mode-subtle: rgba(15, 118, 110, 0.1);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+.dark {
+  --bg-main: #0c1017;
+  --text-main: #f1f5f9;
+  --card-bg: #101620;
+  --card-border: #1d2634;
+  --well-bg: #0b0f17;
+  --well-border: #1d2634;
+  --muted-text: #7e8c9f;
+  --track-bg: #1c2432;
+  --divider: #1d2634;
+
+  /* Default Focus Mode Variables (Dark) */
+  --mode-accent: #64ffda;
+  --mode-glow: #6bd8cb;
+  --mode-container: #004d40;
+  --mode-border: #00bfa5;
+  --mode-text: #80cbc4;
+  --mode-subtle: rgba(100, 255, 218, 0.12);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Explicit Mode-dependent CSS variables for Focus Mode */
+html[data-mode="focus"] {
+  --mode-accent: #0f766e;
+  --mode-glow: #2dd4bf;
+  --mode-container: #ccfbf1;
+  --mode-border: #99f6e4;
+  --mode-text: #0f766e;
+  --mode-subtle: rgba(15, 118, 110, 0.1);
+  --bg-main: #faf8ff;
+}
+
+html[data-mode="focus"].dark,
+html.dark[data-mode="focus"] {
+  --mode-accent: #64ffda;
+  --mode-glow: #6bd8cb;
+  --mode-container: #004d40;
+  --mode-border: #00bfa5;
+  --mode-text: #80cbc4;
+  --mode-subtle: rgba(100, 255, 218, 0.12);
+  --bg-main: #0c1017;
+}
+
+/* Mode-dependent CSS variables for Short Break */
+html[data-mode="shortBreak"] {
+  --mode-accent: #0284c7;
+  --mode-glow: #7dd3fc;
+  --mode-container: #e0f2fe;
+  --mode-border: #bae6fd;
+  --mode-text: #0369a1;
+  --mode-subtle: rgba(2, 132, 199, 0.1);
+  --bg-main: #f0f9ff;
+}
+
+html[data-mode="shortBreak"].dark,
+html.dark[data-mode="shortBreak"] {
+  --mode-accent: #38bdf8;
+  --mode-glow: #7dd3fc;
+  --mode-container: #0c4a6e;
+  --mode-border: #0284c7;
+  --mode-text: #bae6fd;
+  --mode-subtle: rgba(56, 189, 248, 0.12);
+  --bg-main: #08101a;
+}
+
+/* Mode-dependent CSS variables for Long Break */
+html[data-mode="longBreak"] {
+  --mode-accent: #ea580c;
+  --mode-glow: #fed7aa;
+  --mode-container: #ffedd5;
+  --mode-border: #fed7aa;
+  --mode-text: #c2410c;
+  --mode-subtle: rgba(234, 88, 12, 0.1);
+  --bg-main: #fff7ed;
+}
+
+html[data-mode="longBreak"].dark,
+html.dark[data-mode="longBreak"] {
+  --mode-accent: #fb923c;
+  --mode-glow: #ffb59a;
+  --mode-container: #7c2d12;
+  --mode-border: #ea580c;
+  --mode-text: #ffedd5;
+  --mode-subtle: rgba(251, 146, 60, 0.12);
+  --bg-main: #140d0a;
+}
+
+::selection {
+  background-color: var(--mode-accent);
+  color: #ffffff;
+}
+
+input[type="range"],
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--mode-accent);
+}
+
+* {
+  scrollbar-color: var(--mode-border) transparent;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  transition: background-color 0.35s cubic-bezier(0.16, 1, 0.3, 1), color 0.35s ease;
 }
