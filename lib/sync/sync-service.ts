@@ -99,12 +99,24 @@ export function mergeLocalWithCloud(
     }
   }
 
+  // Merge sessions without duplicates
+  const cloudSessions = cloud.sessions || [];
+  const existingSessionIds = new Set(cloudSessions.map((s) => s.id));
+  const mergedSessions = [...cloudSessions];
+  for (const s of local.sessions || []) {
+    if (!existingSessionIds.has(s.id)) {
+      mergedSessions.push(s);
+      existingSessionIds.add(s.id);
+    }
+  }
+
   return {
     blocklist: mergedBlocklist,
     shortcuts: mergedShortcuts,
     settings: { ...(cloud.settings || {}), ...(local.settings || {}) },
     presets: cloud.presets || local.presets || [],
     streak: cloud.streak || local.streak,
+    sessions: mergedSessions,
     exportedAt: new Date().toISOString(),
     version: "1.0.0",
   };

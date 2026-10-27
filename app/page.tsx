@@ -776,21 +776,14 @@ export default function DashboardPage() {
                     />
                     <div className="flex flex-col items-center mt-0.5 text-center">
                       <span
-                        className={`text-[11px] leading-none transition-colors flex items-center justify-center gap-0.5 ${
+                        className={`text-[11px] leading-none transition-colors ${
                           col.isToday
                             ? "font-bold"
                             : isDark ? "text-[#f1f5f9]" : "text-[#0f172a]"
                         }`}
                         style={col.isToday ? { color: activeColor } : undefined}
                       >
-                        <span>{col.shortDay}</span>
-                        {col.isToday && (
-                          <span
-                            className="w-1 h-1 rounded-full animate-pulse"
-                            style={{ backgroundColor: activeColor }}
-                            title="Today"
-                          />
-                        )}
+                        {col.shortDay}
                       </span>
                       <span
                         className={`text-[9.5px] mt-0.5 leading-none transition-colors ${

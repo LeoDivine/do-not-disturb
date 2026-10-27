@@ -290,19 +290,12 @@ export default function StatisticsPage() {
                     />
                     <div className="flex flex-col items-center mt-1 text-center">
                       <span
-                        className={`text-xs flex items-center justify-center gap-1 transition-colors ${
+                        className={`text-xs transition-colors ${
                           bar.isToday ? "font-bold" : "font-medium"
                         } ${bar.isToday ? "" : isDark ? "text-[#f1f5f9]" : "text-[#0f172a]"}`}
                         style={bar.isToday ? { color: activeColor } : undefined}
                       >
-                        <span>{bar.day}</span>
-                        {bar.isToday && (
-                          <span
-                            className="w-1.5 h-1.5 rounded-full animate-pulse"
-                            style={{ backgroundColor: activeColor }}
-                            title="Today"
-                          />
-                        )}
+                        {bar.day}
                       </span>
                       <span
                         className={`text-[10px] tracking-tight transition-colors ${

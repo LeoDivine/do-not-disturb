@@ -27,6 +27,12 @@ export default function Footer() {
         </p>
         <div className="flex items-center gap-6">
           <Link
+            href="/tips"
+            className="cursor-pointer transition-colors hover:opacity-80"
+          >
+            Friendly Tips
+          </Link>
+          <Link
             href="/privacy"
             className="cursor-pointer transition-colors hover:opacity-80"
             style={{ color: activeColor }}

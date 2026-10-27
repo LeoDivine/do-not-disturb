@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import { useTheme } from "../context/theme-context";
 import { useTimer } from "../context/timer-context";
+import { getStoredBlocklist } from "../lib/blocking/blocklist-store";
 
 export default function MiniTimerWindow() {
   const pathname = usePathname();
@@ -108,32 +109,104 @@ export default function MiniTimerWindow() {
     ctx.fillStyle = "#080c14";
     ctx.fillRect(0, 0, w, h);
 
-    // Header Mode Title (clean text, no pill background/border)
+    // Header Mode Title
     ctx.fillStyle = activeColor;
     ctx.font = "600 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     const simpleMode = mode === "focus" ? "Focus" : mode === "shortBreak" ? "Short Break" : "Long Break";
-    ctx.fillText(simpleMode, 24, 20);
+    ctx.fillText(simpleMode, 24, 18);
 
-    // Header Cycle Count
+    // Header Shield & Cycle Count
+    let blockedCount = 0;
+    try {
+      blockedCount = getStoredBlocklist().filter((e) => e.active).length;
+    } catch {}
+
+    const cycleInfo = `${cycle}/${totalCycles}`;
+    const blockedInfo = `${blockedCount} guarded`;
+
+    ctx.font = "500 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textBaseline = "middle";
+
+    const cycleWidth = ctx.measureText(cycleInfo).width;
+    const sepWidth = ctx.measureText(" • ").width;
+    const blockedWidth = ctx.measureText(blockedInfo).width;
+
+    let rx = w - 24;
     ctx.fillStyle = "#64748b";
-    ctx.font = "500 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
     ctx.textAlign = "right";
-    ctx.fillText(`${cycle} of ${totalCycles}`, w - 24, 20);
+    ctx.fillText(cycleInfo, rx, 18);
+    rx -= cycleWidth;
+
+    ctx.fillText(" • ", rx, 18);
+    rx -= sepWidth;
+
+    ctx.fillText(blockedInfo, rx, 18);
+    rx -= (blockedWidth + 4);
+
+    // Vector shield icon
+    ctx.save();
+    ctx.strokeStyle = "#64748b";
+    ctx.lineWidth = 1.3;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    const sx = rx - 9;
+    const sy = 13;
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + 7, sy);
+    ctx.lineTo(sx + 7, sy + 3.5);
+    ctx.quadraticCurveTo(sx + 7, sy + 8, sx + 3.5, sy + 10);
+    ctx.quadraticCurveTo(sx, sy + 8, sx, sy + 3.5);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+
+    // Header Goal / Anchor Task
+    const anchor = typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || localStorage.getItem("dnd_session_intent") || "" : "";
+    if (anchor) {
+      ctx.font = "500 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      ctx.textBaseline = "middle";
+      const truncated = anchor.length > 36 ? anchor.slice(0, 34) + "…" : anchor;
+      const textWidth = ctx.measureText(truncated).width;
+      const iconSize = 10;
+      const iconGap = 5;
+      const totalWidth = iconSize + iconGap + textWidth;
+      const startX = (w - totalWidth) / 2;
+
+      // Vector target icon
+      ctx.save();
+      ctx.strokeStyle = "#94a3b8";
+      ctx.lineWidth = 1.2;
+      const cx = startX + 5;
+      const cy = 42;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = "#94a3b8";
+      ctx.fill();
+      ctx.restore();
+
+      // Anchor text
+      ctx.fillStyle = "#cbd5e1";
+      ctx.textAlign = "left";
+      ctx.fillText(truncated, startX + iconSize + iconGap, 42);
+    }
 
     // Large Minimalist Countdown Digits
     ctx.fillStyle = "#ffffff";
-    ctx.font = "300 52px -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace, sans-serif";
+    ctx.font = "300 48px -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(formatTime(secondsLeft), w / 2, 86);
+    ctx.fillText(formatTime(secondsLeft), w / 2, anchor ? 90 : 86);
 
     // Sleek Progress Track (minimalist 2px line)
     const barX = 24;
-    const barY = 136;
+    const barY = anchor ? 136 : 134;
     const barW = w - 48;
-    const barH = 2;
+    const barH = 2.5;
     ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
     ctx.beginPath();
     ctx.roundRect(barX, barY, barW, barH, 1);
@@ -149,17 +222,24 @@ export default function MiniTimerWindow() {
 
     // Subtle Footer State
     ctx.fillStyle = "#94a3b8";
-    ctx.font = "500 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    ctx.textAlign = "center";
+    ctx.font = "500 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "left";
     ctx.textBaseline = "bottom";
-    ctx.fillText(isRunning ? "In focus" : "Paused", w / 2, 178);
+    ctx.fillText(isRunning ? "● Active in flow" : "○ Paused", 24, 180);
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#64748b";
+    ctx.fillText(`Target: ${Math.round(totalSeconds / 60)}m`, w - 24, 180);
   }, [activeColor, colors.name, cycle, totalCycles, formatTime, secondsLeft, totalSeconds, isRunning, mode]);
+
+  const renderCanvasFrameRef = useRef(renderCanvasFrame);
+  useEffect(() => {
+    renderCanvasFrameRef.current = renderCanvasFrame;
+  }, [renderCanvasFrame]);
 
   // Continually update canvas & video stream when timer is running
   useEffect(() => {
     renderCanvasFrame();
-
-    if (!isRunning) return;
 
     const intervalId = setInterval(() => {
       renderCanvasFrame();
@@ -168,23 +248,51 @@ export default function MiniTimerWindow() {
     return () => clearInterval(intervalId);
   }, [renderCanvasFrame, secondsLeft, isRunning, mode]);
 
-  // Keep video active and playing with canvas stream when timer is running
+  // Keep video active and playing with canvas stream so auto-PiP is always armed
   useEffect(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
     (video as unknown as { autoPictureInPicture?: boolean }).autoPictureInPicture = !isBlockedPage;
+    video.setAttribute("autopictureinpicture", "");
 
-    if (isRunning) {
-      renderCanvasFrame();
-      if (!video.srcObject) {
-        const stream = canvas.captureStream(20);
-        video.srcObject = stream;
-      }
-      video.play().catch(() => {});
+    renderCanvasFrame();
+    if (!video.srcObject) {
+      const stream = canvas.captureStream(20);
+      video.srcObject = stream;
     }
-  }, [isRunning, renderCanvasFrame]);
+    video.play().catch(() => {});
+  }, [isBlockedPage, renderCanvasFrame]);
+
+  // Ensure video playback is primed whenever the user interacts with the document
+  useEffect(() => {
+    const primeVideo = () => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (!video || !canvas || isBlockedPage) return;
+
+      (video as unknown as { autoPictureInPicture?: boolean }).autoPictureInPicture = true;
+      video.setAttribute("autopictureinpicture", "");
+
+      if (!video.srcObject) {
+        video.srcObject = canvas.captureStream(20);
+      }
+      if (video.paused) {
+        video.play().catch(() => {});
+      }
+    };
+
+    window.addEventListener("pointerdown", primeVideo, { passive: true });
+    window.addEventListener("keydown", primeVideo, { passive: true });
+    window.addEventListener("focus", primeVideo, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", primeVideo);
+      window.removeEventListener("keydown", primeVideo);
+      window.removeEventListener("focus", primeVideo);
+    };
+  }, [isBlockedPage]);
 
   // Update Document PiP window DOM elements on each tick
   useEffect(() => {
@@ -194,6 +302,9 @@ export default function MiniTimerWindow() {
     const modeEl = pipDoc.getElementById("pip-mode");
     const cycleEl = pipDoc.getElementById("pip-cycle");
     const progressEl = pipDoc.getElementById("pip-progress");
+    const anchorEl = pipDoc.getElementById("pip-anchor");
+    const shieldEl = pipDoc.getElementById("pip-shield");
+    const statusEl = pipDoc.getElementById("pip-status");
     const playBtn = pipDoc.getElementById("pip-play-btn") as HTMLButtonElement | null;
     const skipBtn = pipDoc.getElementById("pip-skip-btn") as HTMLButtonElement | null;
 
@@ -207,6 +318,28 @@ export default function MiniTimerWindow() {
       const progress = totalSeconds > 0 ? ((totalSeconds - secondsLeft) / totalSeconds) * 100 : 0;
       progressEl.style.width = `${progress}%`;
       progressEl.style.backgroundColor = activeColor;
+    }
+    if (anchorEl) {
+      const anchor = typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || localStorage.getItem("dnd_session_intent") || "" : "";
+      const anchorVal = pipDoc.getElementById("pip-anchor-val");
+      if (anchorVal) {
+        anchorVal.textContent = anchor;
+      }
+      anchorEl.style.display = anchor ? "flex" : "none";
+    }
+    if (shieldEl) {
+      let blockedCount = 0;
+      try {
+        blockedCount = getStoredBlocklist().filter((e) => e.active).length;
+      } catch {}
+      const shieldVal = pipDoc.getElementById("pip-shield-val");
+      if (shieldVal) {
+        shieldVal.textContent = `${blockedCount} blocked`;
+      }
+    }
+    if (statusEl) {
+      statusEl.textContent = isRunning ? "In focus" : "Paused";
+      statusEl.style.color = isRunning ? activeColor : "#64748b";
     }
     if (playBtn) {
       playBtn.style.backgroundColor = activeColor;
@@ -228,12 +361,16 @@ export default function MiniTimerWindow() {
   }, [secondsLeft, isRunning, colors.name, cycle, totalCycles, totalSeconds, activeColor, isDark, mode, formatTime]);
 
   // Trigger minimalist Document Picture-in-Picture window (Browser native style, no pills)
-  const openDocumentPip = useCallback(async () => {
+  const openDocumentPip = useCallback(async (forceOpen = false) => {
     try {
       if (!("documentPictureInPicture" in window)) return false;
 
-      // Close existing if open
+      // If already open
       if (pipWindowRef.current) {
+        if (forceOpen) {
+          setIsMiniWindowActive(true);
+          return true;
+        }
         pipWindowRef.current.close();
         pipWindowRef.current = null;
         setIsMiniWindowActive(false);
@@ -245,8 +382,8 @@ export default function MiniTimerWindow() {
           requestWindow: (options: { width: number; height: number }) => Promise<Window>;
         };
       }).documentPictureInPicture.requestWindow({
-        width: 280,
-        height: 160,
+        width: 300,
+        height: 180,
       });
 
       pipWindowRef.current = pip;
@@ -254,6 +391,13 @@ export default function MiniTimerWindow() {
 
       const pipDoc = pip.document;
       pipDoc.title = `Do Not Disturb — ${colors.name}`;
+
+      let blockedCount = 0;
+      try {
+        blockedCount = getStoredBlocklist().filter((e) => e.active).length;
+      } catch {}
+
+      const anchor = typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || localStorage.getItem("dnd_session_intent") || "" : "";
 
       // Minimalist browser native media PiP styling
       const style = pipDoc.createElement("style");
@@ -266,7 +410,7 @@ export default function MiniTimerWindow() {
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          padding: 14px 18px 16px;
+          padding: 12px 16px 14px;
           height: 100vh;
           overflow: hidden;
           user-select: none;
@@ -291,8 +435,28 @@ export default function MiniTimerWindow() {
         }
         .mode-title {
           font-size: 12px;
-          font-weight: 500;
+          font-weight: 600;
           letter-spacing: 0.02em;
+        }
+        .meta-wrap {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .shield-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 10px;
+          color: #94a3b8;
+          background: rgba(255, 255, 255, 0.06);
+          padding: 2px 7px;
+          border-radius: 4px;
+        }
+        .shield-icon {
+          display: inline-block;
+          flex-shrink: 0;
+          color: #94a3b8;
         }
         .cycle-info {
           font-size: 11px;
@@ -300,14 +464,33 @@ export default function MiniTimerWindow() {
           color: #64748b;
           font-family: ui-monospace, SFMono-Regular, monospace;
         }
+        .anchor-text {
+          font-size: 11px;
+          color: #cbd5e1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          text-align: center;
+          padding: 2px 0 0;
+          line-height: 1.2;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 5px;
+        }
+        .anchor-icon {
+          display: inline-block;
+          flex-shrink: 0;
+          color: #94a3b8;
+        }
         .timer-wrap {
           display: flex;
           align-items: center;
           justify-content: center;
-          margin: 4px 0;
+          margin: 2px 0;
         }
         .timer-digits {
-          font-size: 46px;
+          font-size: 42px;
           font-weight: 300;
           font-variant-numeric: tabular-nums;
           letter-spacing: -0.03em;
@@ -317,11 +500,11 @@ export default function MiniTimerWindow() {
         }
         .progress-track {
           width: 100%;
-          height: 2px;
+          height: 2.5px;
           background: rgba(255, 255, 255, 0.08);
           border-radius: 999px;
           overflow: hidden;
-          margin-bottom: 12px;
+          margin-bottom: 8px;
         }
         .progress-fill {
           height: 100%;
@@ -329,11 +512,20 @@ export default function MiniTimerWindow() {
           border-radius: 999px;
           transition: width 0.3s ease;
         }
+        .footer-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .status-text {
+          font-size: 10.5px;
+          color: #94a3b8;
+          font-weight: 500;
+        }
         .controls {
           display: flex;
           align-items: center;
-          justify-content: center;
-          gap: 12px;
+          gap: 8px;
         }
         .btn {
           display: inline-flex;
@@ -349,15 +541,15 @@ export default function MiniTimerWindow() {
           transform: scale(0.92);
         }
         .btn-play {
-          width: 36px;
-          height: 36px;
+          width: 32px;
+          height: 32px;
         }
         .btn-play:hover {
           opacity: 0.9;
         }
         .btn-skip {
-          width: 30px;
-          height: 30px;
+          width: 26px;
+          height: 26px;
           background-color: rgba(255, 255, 255, 0.06);
           color: #94a3b8;
         }
@@ -365,10 +557,21 @@ export default function MiniTimerWindow() {
           background-color: rgba(255, 255, 255, 0.12);
           color: #ffffff;
         }
+        .btn-app {
+          font-size: 10.5px;
+          color: #64748b;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .btn-app:hover {
+          color: #ffffff;
+        }
       `;
       pipDoc.head.appendChild(style);
 
-      // DOM Content - Minimalist browser style without unnecessary pills
+      // DOM Content
       const container = pipDoc.createElement("div");
       container.style.display = "flex";
       container.style.flexDirection = "column";
@@ -389,7 +592,24 @@ export default function MiniTimerWindow() {
             <span class="mode-dot"></span>
             <span id="pip-mode" class="mode-title" style="color: ${activeColor};">${simpleMode}</span>
           </div>
-          <span id="pip-cycle" class="cycle-info">${cycle} of ${totalCycles}</span>
+          <div class="meta-wrap">
+            <span id="pip-shield" class="shield-pill">
+              <svg class="shield-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <span id="pip-shield-val">${blockedCount} blocked</span>
+            </span>
+            <span id="pip-cycle" class="cycle-info">${cycle} of ${totalCycles}</span>
+          </div>
+        </div>
+
+        <div id="pip-anchor" class="anchor-text" style="display: ${anchor ? "flex" : "none"};">
+          <svg class="anchor-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="6"/>
+            <circle cx="12" cy="12" r="2"/>
+          </svg>
+          <span id="pip-anchor-val" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${anchor}</span>
         </div>
 
         <div class="timer-wrap">
@@ -400,12 +620,23 @@ export default function MiniTimerWindow() {
           <div class="progress-track">
             <div id="pip-progress" class="progress-fill" style="background-color: ${activeColor}; width: ${progressPercent}%;"></div>
           </div>
-          <div class="controls">
-            <button id="pip-play-btn" type="button" class="btn btn-play" style="background-color: ${activeColor}; color: ${playBtnColor};" title="${isRunning ? "Pause" : "Start"}">
-              ${playIconSvg}
-            </button>
-            <button id="pip-skip-btn" type="button" class="btn btn-skip" title="Next">
-              ${skipIconSvg}
+          <div class="footer-row">
+            <span id="pip-status" class="status-text">${isRunning ? "In focus" : "Paused"}</span>
+            <div class="controls">
+              <button id="pip-play-btn" type="button" class="btn btn-play" style="background-color: ${activeColor}; color: ${playBtnColor};" title="${isRunning ? "Pause" : "Start"}">
+                ${playIconSvg}
+              </button>
+              <button id="pip-skip-btn" type="button" class="btn btn-skip" title="Next">
+                ${skipIconSvg}
+              </button>
+            </div>
+            <button id="pip-app-btn" type="button" class="btn-app" title="Focus website" style="display: inline-flex; align-items: center; gap: 4px;">
+              <span>App</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                <polyline points="15 3 21 3 21 9"/>
+                <line x1="10" y1="14" x2="21" y2="3"/>
+              </svg>
             </button>
           </div>
         </div>
@@ -429,14 +660,25 @@ export default function MiniTimerWindow() {
         };
       }
 
+      const appBtn = pipDoc.getElementById("pip-app-btn");
+      if (appBtn) {
+        appBtn.onclick = (e) => {
+          e.preventDefault();
+          window.focus();
+        };
+      }
+
       pip.addEventListener("pagehide", () => {
         setIsMiniWindowActive(false);
         pipWindowRef.current = null;
       });
 
       return true;
-    } catch (err) {
-      console.warn("Document PiP request was not allowed or failed", err);
+    } catch (err: unknown) {
+      const isNotAllowed = (err as { name?: string })?.name === "NotAllowedError";
+      if (!isNotAllowed) {
+        console.warn("Document PiP request failed", err);
+      }
       return false;
     }
   }, [
@@ -454,7 +696,7 @@ export default function MiniTimerWindow() {
   ]);
 
   // Video-based Picture-in-Picture fallback
-  const openVideoPip = useCallback(async () => {
+  const openVideoPip = useCallback(async (forceOpen = false) => {
     try {
       const canvas = canvasRef.current;
       const video = videoRef.current;
@@ -466,9 +708,15 @@ export default function MiniTimerWindow() {
         const stream = canvas.captureStream(20);
         video.srcObject = stream;
       }
-      await video.play();
+      (video as unknown as { autoPictureInPicture?: boolean }).autoPictureInPicture = !isBlockedPage;
+      video.setAttribute("autopictureinpicture", "");
+      await video.play().catch(() => {});
 
       if (document.pictureInPictureElement) {
+        if (forceOpen) {
+          setIsMiniWindowActive(true);
+          return true;
+        }
         await document.exitPictureInPicture();
         setIsMiniWindowActive(false);
         return true;
@@ -477,20 +725,26 @@ export default function MiniTimerWindow() {
       await video.requestPictureInPicture();
       setIsMiniWindowActive(true);
 
-      video.addEventListener(
-        "leavepictureinpicture",
-        () => {
-          setIsMiniWindowActive(false);
-        },
-        { once: true }
-      );
+      const handleLeave = () => {
+        setIsMiniWindowActive(false);
+        if (videoRef.current && !isBlockedPage) {
+          (videoRef.current as unknown as { autoPictureInPicture?: boolean }).autoPictureInPicture = true;
+          videoRef.current.setAttribute("autopictureinpicture", "");
+          videoRef.current.play().catch(() => {});
+        }
+      };
+      video.removeEventListener("leavepictureinpicture", handleLeave);
+      video.addEventListener("leavepictureinpicture", handleLeave, { once: true });
 
       return true;
-    } catch (err) {
-      console.warn("Video PiP fallback request failed", err);
+    } catch (err: unknown) {
+      const isNotAllowed = (err as { name?: string })?.name === "NotAllowedError";
+      if (!isNotAllowed) {
+        console.warn("Video PiP fallback request failed", err);
+      }
       return false;
     }
-  }, [renderCanvasFrame, setIsMiniWindowActive]);
+  }, [renderCanvasFrame, setIsMiniWindowActive, isBlockedPage]);
 
   // Helper to reliably close any open Picture-in-Picture window
   const closeAnyOpenPip = useCallback(() => {
@@ -520,7 +774,14 @@ export default function MiniTimerWindow() {
     }
 
     setIsMiniWindowActive(false);
-  }, [setIsMiniWindowActive]);
+
+    // Re-arm video playback and auto-PiP immediately for next blur
+    if (videoRef.current && !isBlockedPage) {
+      (videoRef.current as unknown as { autoPictureInPicture?: boolean }).autoPictureInPicture = true;
+      videoRef.current.setAttribute("autopictureinpicture", "");
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isBlockedPage, setIsMiniWindowActive]);
 
   // Master pop-out handler for browser mini pop-up
   const toggleMiniWindow = useCallback(async () => {
@@ -647,39 +908,54 @@ export default function MiniTimerWindow() {
   }, [isBlockedPage, closeAnyOpenPip, openDocumentPip, openVideoPip]);
 
   // AUTO-SHOW WHEN WEBSITE LOSES FOCUS & AUTO-HIDE WHEN WEBSITE IS IN FOCUS
-  // "When the timer starts and the website is no longer in focus, the mini pop-up shows"
-  // "When in the website, do not show the mini popup"
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
     const handleFocusLoss = async () => {
       // Never pop out if user is on the blocked page
       if (isBlockedPage) return;
-      // Only pop out if the timer is actively running and PiP is not already open
-      if (!isRunningRef.current) return;
-      if (pipWindowRef.current || document.pictureInPictureElement) return;
 
-      // Try Document PiP first
-      if ("documentPictureInPicture" in window) {
+      // If already open, keep it active
+      if (pipWindowRef.current || (typeof document !== "undefined" && document.pictureInPictureElement)) {
+        setIsMiniWindowActive(true);
+        return;
+      }
+
+      // Ensure stream and video playback are active
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      if (canvas && video) {
+        renderCanvasFrameRef.current();
+        if (!video.srcObject) {
+          video.srcObject = canvas.captureStream(20);
+        }
+        (video as unknown as { autoPictureInPicture?: boolean }).autoPictureInPicture = true;
+        video.setAttribute("autopictureinpicture", "");
+        video.play().catch(() => {});
+      }
+
+      // 1. Try Document Picture-in-Picture first if supported
+      if (typeof window !== "undefined" && "documentPictureInPicture" in window) {
         try {
-          const ok = await openDocumentPip();
+          const ok = await openDocumentPip(true);
           if (ok) return;
         } catch {
-          // Fall back to video PiP if Document PiP was not permitted
+          // Fall back to Video PiP
         }
       }
 
-      // Fall back to native Video PiP
+      // 2. Fall back to Video PiP (forceOpen = true, never toggle off)
       try {
-        await openVideoPip();
-      } catch (err) {
-        console.warn("Auto PiP open failed:", err);
-      }
+        await openVideoPip(true);
+      } catch {}
     };
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         handleFocusLoss();
+      } else if (document.visibilityState === "visible") {
+        // Automatically hide mini pop-up when returning to website
+        closeAnyOpenPip();
       }
     };
 
@@ -687,8 +963,13 @@ export default function MiniTimerWindow() {
       handleFocusLoss();
     };
 
+    const onWindowFocus = () => {
+      closeAnyOpenPip();
+    };
+
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("blur", onWindowBlur);
+    window.addEventListener("focus", onWindowFocus);
 
     // Register MediaSession enterpictureinpicture so browser auto-PiP hooks work seamlessly
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
@@ -702,8 +983,9 @@ export default function MiniTimerWindow() {
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("blur", onWindowBlur);
+      window.removeEventListener("focus", onWindowFocus);
     };
-  }, [isBlockedPage, openDocumentPip, openVideoPip, setIsMiniWindowActive]);
+  }, [closeAnyOpenPip, isBlockedPage, openDocumentPip, openVideoPip, setIsMiniWindowActive]);
 
   // NOTE: Elements are mounted with 1px off-screen fixed positioning rather than 'display: none'
   // so browser Picture-in-Picture engine and autoPictureInPicture can actively capture the stream.

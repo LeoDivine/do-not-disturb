@@ -17,10 +17,9 @@
     const data = event.data;
     if (!data || data.source !== "dnd-web-app" || !data.payload) return;
 
-    // Guard: Prevent the /blocked page from accidentally starting or re-enabling a running session,
-    // but permit explicit pause / stop actions so blocking rules are lifted when the user pauses.
-    if (window.location.pathname.startsWith("/blocked") && data.payload.type === "DND_SYNC_SESSION" && data.payload.session?.status === "running") {
-      console.log("[DND Extension] Content bridge: ignored start/run sync request originating from /blocked page.");
+    // Guard: Prevent the /blocked page from accidentally starting, updating, or clearing session rules via background sync
+    if (window.location.pathname.startsWith("/blocked") && data.payload.type === "DND_SYNC_SESSION") {
+      console.log("[DND Extension] Content bridge: ignored sync request originating from /blocked page.");
       window.postMessage(
         {
           source: "dnd-extension",

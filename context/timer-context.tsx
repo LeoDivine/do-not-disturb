@@ -271,9 +271,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const dispatchExtensionSync = useCallback(
     (running: boolean, currentMode: SessionMode, endsAt: number | null, remaining: number) => {
       if (typeof window === "undefined") return;
-      // Prevent /blocked page from starting new active focus blocking sessions,
-      // but explicitly allow pausing and stopping so rules are cleared when paused from /blocked!
-      if (window.location.pathname.startsWith("/blocked") && running) {
+      // The /blocked deflection page must NEVER dispatch automatic extension syncs
+      if (window.location.pathname.startsWith("/blocked")) {
         return;
       }
 
@@ -294,6 +293,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
       const redirectUrl = `${window.location.origin}/blocked`;
       const isStrict = settingsRef.current.strictBlocking === "STRICT";
+      const anchor = typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || "" : "";
+      const intent = typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || "" : "";
+      const totalDuration = durationsRef.current ? durationsRef.current[currentMode] : 25 * 60;
+      const currentCycle = cycleRef.current || 1;
+      const currentTotalCycles = totalCyclesRef.current || 4;
 
       // Focus mode blocking behavior:
       // When running -> block active domains
@@ -308,6 +312,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             mode: "focus",
             secondsRemaining: remaining,
             endsAt,
+            totalDuration,
+            cycle: currentCycle,
+            totalCycles: currentTotalCycles,
+            anchor,
+            intent,
           },
           activeDomains,
           redirectUrl,
@@ -321,6 +330,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             mode: currentMode,
             secondsRemaining: remaining,
             endsAt,
+            totalDuration,
+            cycle: currentCycle,
+            totalCycles: currentTotalCycles,
+            anchor,
+            intent,
           },
           [],
           redirectUrl,
@@ -389,6 +403,47 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         sessionIdRef.current = saved.sessionId || `sess_${now}`;
         setCycle(saved.cycle || 1);
         applyModeAttribute(targetMode);
+      } else if (saved.isRunning && saved.endsAt && saved.endsAt <= now) {
+        // Session ended while the tab was hidden, suspended, or closed: record it so it's not lost!
+        if (targetMode === "focus") {
+          try {
+            recordCompletedSession({
+              mode: "focus",
+              plannedSeconds: saved.totalSeconds || fallbackDuration,
+              actualSeconds: saved.totalSeconds || fallbackDuration,
+              goal: typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || undefined : undefined,
+              intent: typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || undefined : undefined,
+            });
+          } catch (e) {
+            console.error("Failed to record background completed session", e);
+          }
+        }
+
+        // Advance to next mode
+        const nextMode: SessionMode = targetMode === "focus" ? "shortBreak" : "focus";
+        const nextDuration = currentDurations[nextMode] || 5 * 60;
+        const nextCycle = targetMode === "focus" ? (saved.cycle || 1) + 1 : (saved.cycle || 1);
+
+        setModeState(nextMode);
+        setTotalSeconds(nextDuration);
+        setSecondsLeft(nextDuration);
+        setIsRunning(false);
+        endsAtRef.current = null;
+        sessionIdRef.current = null;
+        setCycle(nextCycle);
+        applyModeAttribute(nextMode);
+
+        const newState: PersistedTimerState = {
+          mode: nextMode,
+          secondsLeft: nextDuration,
+          totalSeconds: nextDuration,
+          isRunning: false,
+          endsAt: null,
+          cycle: nextCycle,
+          sessionId: null,
+        };
+        persistAndBroadcast(newState);
+        dispatchExtensionSync(false, nextMode, null, nextDuration);
       } else {
         setModeState(targetMode);
         setTotalSeconds(saved.totalSeconds || fallbackDuration);
@@ -478,15 +533,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       const remainingSecs = Math.ceil(remainingMs / 1000);
 
       if (remainingSecs <= 0) {
-        // Save real session history record
-        try {
-          recordCompletedSession({
-            mode,
-            plannedSeconds: totalSeconds,
-            actualSeconds: totalSeconds,
-          });
-        } catch (e) {
-          console.error("Failed to record completed session", e);
+        // Clear immediately to prevent concurrent interval re-triggers
+        endsAtRef.current = null;
+
+        // Save real session history record for completed focus sprints
+        if (mode === "focus") {
+          try {
+            recordCompletedSession({
+              mode: "focus",
+              plannedSeconds: totalSeconds,
+              actualSeconds: totalSeconds,
+              goal: typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || undefined : undefined,
+              intent: typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || undefined : undefined,
+            });
+          } catch (e) {
+            console.error("Failed to record completed session", e);
+          }
         }
 
         // Play completion chime if enabled in user settings
@@ -625,13 +687,15 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
   const resetTimer = useCallback(() => {
     const elapsed = totalSeconds - secondsLeftRef.current;
-    if (isRunning && mode === "focus" && elapsed >= 60) {
+    if (mode === "focus" && elapsed >= 60 && (isRunning || sessionIdRef.current)) {
       try {
         recordCompletedSession({
           mode: "focus",
           plannedSeconds: totalSeconds,
           actualSeconds: elapsed,
           endedEarly: true,
+          goal: typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || undefined : undefined,
+          intent: typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || undefined : undefined,
         });
       } catch {}
     }
@@ -661,13 +725,15 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
   const skipTimer = useCallback(() => {
     const elapsed = totalSeconds - secondsLeftRef.current;
-    if (isRunning && mode === "focus" && elapsed >= 60) {
+    if (mode === "focus" && elapsed >= 60 && (isRunning || sessionIdRef.current)) {
       try {
         recordCompletedSession({
           mode: "focus",
           plannedSeconds: totalSeconds,
           actualSeconds: elapsed,
           endedEarly: true,
+          goal: typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || undefined : undefined,
+          intent: typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || undefined : undefined,
         });
       } catch {}
     }

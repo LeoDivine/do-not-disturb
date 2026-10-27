@@ -7,70 +7,85 @@
   <style>
     :root {
       --bg: #0b0f17;
-      --card-bg: #141b24;
+      --card-bg: #121822;
+      --card-subtle: #0e141d;
       --border: #1d2634;
       --text: #f1f5f9;
-      --text-muted: #94a3b8;
+      --text-muted: #7e8c9f;
+      --text-dim: #64748b;
       --primary: #64ffda;
       --primary-dim: rgba(100, 255, 218, 0.12);
+      --primary-border: rgba(100, 255, 218, 0.3);
+      --break-accent: #38bdf8;
+      --break-dim: rgba(56, 189, 248, 0.12);
       --danger: #ef4444;
     }
-    body {
+    * {
+      box-sizing: border-box;
       margin: 0;
-      padding: 16px;
-      width: 280px;
+      padding: 0;
+    }
+    body {
+      width: 300px;
+      padding: 14px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
-      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
     }
     .header {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
+      justify-content: space-between;
+      margin-bottom: 12px;
       padding-bottom: 10px;
       border-bottom: 1px solid var(--border);
     }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
     .brand-icon {
-      width: 28px;
-      height: 28px;
-      border-radius: 8px;
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
       background: var(--primary-dim);
-      border: 1px solid rgba(100, 255, 218, 0.3);
+      border: 1px solid var(--primary-border);
       display: flex;
       align-items: center;
       justify-content: center;
       color: var(--primary);
+      flex-shrink: 0;
     }
-    .header h2 {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 600;
+    .brand-title {
+      font-size: 13px;
+      font-weight: 700;
       letter-spacing: -0.01em;
+      line-height: 1.15;
     }
-    .header span {
-      font-size: 11px;
+    .brand-subtitle {
+      font-size: 10px;
       color: var(--text-muted);
     }
-    .status-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .badge {
+    .shield-badge {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 10.5px;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      transition: all 0.2s ease;
+    }
+    .shield-badge.active {
+      background: var(--primary-dim);
+      border-color: var(--primary-border);
+      color: var(--primary);
     }
     .badge-dot {
       width: 6px;
@@ -78,90 +93,265 @@
       border-radius: 50%;
       background: #64748b;
     }
-    .badge-dot.active {
+    .shield-badge.active .badge-dot {
       background: var(--primary);
-      box-shadow: 0 0 8px var(--primary);
+      box-shadow: 0 0 6px var(--primary);
     }
-    .stat-row {
+
+    /* Live Session Timer Card */
+    .timer-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 10px;
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12px;
-      color: var(--text-muted);
+      flex-direction: column;
+      gap: 8px;
     }
-    .stat-val {
+    .timer-top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .mode-tag {
+      font-weight: 600;
+      color: var(--primary);
+      letter-spacing: 0.02em;
+    }
+    .cycle-tag {
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+    .anchor-box {
+      font-size: 11px;
+      color: #cbd5e1;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 5px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      line-height: 1.2;
+    }
+    .anchor-box span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .countdown-wrap {
+      text-align: center;
+      padding: 2px 0;
+    }
+    .countdown-digits {
+      font-size: 42px;
+      font-weight: 300;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      color: #ffffff;
+      letter-spacing: -0.03em;
+    }
+    .countdown-state {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      margin-top: 3px;
+      font-weight: 500;
+    }
+    .progress-track {
+      width: 100%;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--primary);
+      border-radius: 999px;
+      transition: width 0.3s ease;
+    }
+
+    /* Shield & Guarded Sites Card */
+    .shield-card {
+      background: var(--card-subtle);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 11px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .shield-info-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .shield-svg {
+      color: var(--primary);
+    }
+    .shield-main-title {
       font-weight: 600;
       color: var(--text);
     }
+    .shield-main-sub {
+      color: var(--text-muted);
+      font-size: 10.5px;
+    }
+    .shield-state-tag {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-muted);
+    }
+    .shield-state-tag.active {
+      background: var(--primary-dim);
+      color: var(--primary);
+    }
+
+    /* Actions */
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
     .btn {
-      display: block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
       width: 100%;
-      box-sizing: border-box;
-      padding: 9px;
-      border-radius: 8px;
-      text-align: center;
-      font-size: 12px;
-      font-weight: 500;
       cursor: pointer;
       text-decoration: none;
       transition: all 0.15s ease;
-      border: 1px solid transparent;
+      user-select: none;
     }
     .btn-primary {
-      background: var(--primary-dim);
-      color: var(--primary);
-      border-color: rgba(100, 255, 218, 0.3);
+      background: var(--primary);
+      color: #00201d;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 11px 16px;
+      border-radius: 12px;
+      border: none;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 0 12px rgba(100, 255, 218, 0.2);
     }
     .btn-primary:hover {
-      background: rgba(100, 255, 218, 0.2);
+      background: #52e6c4;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 16px rgba(100, 255, 218, 0.35);
+    }
+    .btn-primary:active {
+      transform: scale(0.99);
     }
     .btn-emergency {
-      margin-top: 8px;
-      background: transparent;
-      color: var(--danger);
-      border-color: rgba(239, 68, 68, 0.2);
+      background: #dc2626;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 10px 16px;
+      border-radius: 12px;
+      border: 1px solid #dc2626;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 0 10px rgba(220, 38, 38, 0.2);
     }
     .btn-emergency:hover {
-      background: rgba(239, 68, 68, 0.1);
+      background: #b91c1c;
+      border-color: #b91c1c;
+      color: #ffffff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 14px rgba(185, 28, 28, 0.3);
+    }
+    .btn-emergency:active {
+      transform: scale(0.99);
     }
   </style>
 </head>
 <body>
+  <!-- Header -->
   <div class="header">
-    <div class="brand-icon">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <circle cx="12" cy="12" r="8"/>
-        <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
-      </svg>
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="12" cy="12" r="8"/>
+          <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">Do Not Disturb</div>
+        <div class="brand-subtitle">Focus Companion</div>
+      </div>
     </div>
-    <div>
-      <h2>Do Not Disturb</h2>
-      <span>Focus companion</span>
-    </div>
-  </div>
-
-  <div class="status-card">
-    <div class="badge">
+    <div class="shield-badge" id="shieldBadge">
       <span class="badge-dot" id="shieldDot"></span>
-      <span id="shieldText">Ready</span>
-    </div>
-    <div class="stat-row">
-      <span>Blocked Sites</span>
-      <span class="stat-val" id="blockedCount">0</span>
-    </div>
-    <div class="stat-row">
-      <span>Session</span>
-      <span class="stat-val" id="sessionMode">—</span>
+      <span id="shieldStatusText">Ready</span>
     </div>
   </div>
 
-  <a href="http://localhost:3000" target="_blank" class="btn btn-primary" id="openDashboardBtn">
-    Open App
-  </a>
+  <!-- Primary Live Timer Card -->
+  <div class="timer-card">
+    <div class="timer-top-row">
+      <span class="mode-tag" id="modeTag">Focus Sprint</span>
+      <span class="cycle-tag" id="cycleTag">Cycle 1 of 4</span>
+    </div>
 
-  <button class="btn btn-emergency" id="emergencyUnblockBtn" style="display: none;">
-    Pause Blocking
-  </button>
+    <!-- Optional Anchor / Milestone Goal -->
+    <div class="anchor-box" id="anchorBox" style="display: none;">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; color: #94a3b8;">
+        <circle cx="12" cy="12" r="10"/>
+        <circle cx="12" cy="12" r="6"/>
+        <circle cx="12" cy="12" r="2"/>
+      </svg>
+      <span id="anchorText"></span>
+    </div>
+
+    <div class="countdown-wrap">
+      <div class="countdown-digits" id="countdownDigits">25:00</div>
+      <div class="countdown-state" id="countdownState">Ready to start</div>
+    </div>
+
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+    </div>
+  </div>
+
+  <!-- Guarded Sites Card -->
+  <div class="shield-card">
+    <div class="shield-info-left">
+      <svg class="shield-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      <div>
+        <div class="shield-main-title">Website Shield</div>
+        <div class="shield-main-sub" id="shieldDetails">0 sites guarded</div>
+      </div>
+    </div>
+    <span class="shield-state-tag" id="shieldStateTag">Standby</span>
+  </div>
+
+  <!-- Action Controls -->
+  <div class="actions">
+    <button class="btn btn-primary" id="openDashboardBtn" type="button">
+      <span>Open Focus Dashboard</span>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+        <polyline points="12 5 19 12 12 19"></polyline>
+      </svg>
+    </button>
+    <button class="btn btn-emergency" id="emergencyUnblockBtn" type="button" style="display: none;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+        <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+      </svg>
+      <span>Pause Website Shield</span>
+    </button>
+  </div>
 
   <script src="popup.js"></script>
 </body>

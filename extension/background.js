@@ -221,10 +221,9 @@ async function handleMessage(message, sender) {
 
     case "DND_SYNC_SESSION": {
       const senderUrl = (message._senderUrl || sender.url || "").toLowerCase();
-      // Only ignore if an active running session is being triggered from /blocked,
-      // but permit pause and stop messages so blocking rules are lifted when paused.
-      if (senderUrl.includes("/blocked") && message.session && message.session.status === "running") {
-        console.log("[DND Extension] Ignored sync session start request originating from /blocked URL.");
+      // The /blocked deflection page must never alter active session blocking rules
+      if (senderUrl.includes("/blocked")) {
+        console.log("[DND Extension] Ignored sync session request originating from /blocked URL.");
         return {
           type: "DND_ACK",
           requestId: message.requestId,

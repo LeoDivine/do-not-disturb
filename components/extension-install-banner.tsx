@@ -85,7 +85,7 @@ export default function ExtensionInstallBanner() {
         <aside
           role="complementary"
           aria-label="Extension recommendation"
-          className={`w-full border-b transition-colors relative z-40 ${
+          className={`w-full border-b transition-colors relative z-30 ${
             isDark
               ? "bg-[#0b0f17] border-[#1d2634] text-slate-300"
               : "bg-[#f8fafc] border-[#e2e8f0] text-slate-700"
@@ -258,9 +258,18 @@ export default function ExtensionInstallBanner() {
                   <button
                     type="button"
                     onClick={copyExtensionsUrl}
-                    className="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline cursor-pointer"
+                    className="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline cursor-pointer inline-flex items-center gap-1"
                   >
-                    {copiedLink ? "✓ Copied to clipboard" : "Copy chrome://extensions URL"}
+                    {copiedLink ? (
+                      <>
+                        <svg className="w-3 h-3 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        <span>Copied to clipboard</span>
+                      </>
+                    ) : (
+                      "Copy chrome://extensions URL"
+                    )}
                   </button>
                 </div>
               </div>

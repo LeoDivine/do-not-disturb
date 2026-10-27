@@ -144,11 +144,25 @@ function BlockedContent() {
   const [isPaused, setIsPaused] = useState(false);
   const [breathIndex, setBreathIndex] = useState(0);
 
-  // Track deflection count
+  // Track deflection count with strict navigation and ref deduplication
+  const hasRecordedRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (blockedSite) {
-      incrementDeflection(blockedSite);
+    if (!blockedSite) return;
+    // Guard against duplicate execution in React StrictMode or multiple component updates
+    if (hasRecordedRef.current === blockedSite) return;
+    hasRecordedRef.current = blockedSite;
+
+    // Guard against duplicate increment across fast navigations within 4 seconds
+    const navKey = `dnd_defl_logged_${blockedSite.toLowerCase().trim()}_${Math.floor(Date.now() / 4000)}`;
+    if (typeof window !== "undefined") {
+      try {
+        if (sessionStorage.getItem(navKey)) return;
+        sessionStorage.setItem(navKey, "1");
+      } catch {}
     }
+
+    incrementDeflection(blockedSite);
   }, [blockedSite]);
 
   // Ensure mini pop-up view is dismissed across all tabs while on /blocked
@@ -187,46 +201,15 @@ function BlockedContent() {
     };
   }, []);
 
-  // Redirect to destination whenever the timer is paused / not running
+  // State to track manual user redirect action
   const [isRedirecting, setIsRedirecting] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (!isRunning && blockedSite && !isRedirecting) {
-      const destination = getDestinationUrl(blockedSite);
-      if (destination && !destination.includes("/blocked")) {
-        setIsRedirecting(true);
-
-        const performRedirect = async () => {
-          // Tell extension to remove all blocking rules and wait for confirmation
-          try {
-            await Promise.race([
-              extensionClient.stopSession(),
-              new Promise((resolve) => setTimeout(resolve, 350)),
-            ]);
-          } catch {}
-
-          // Ensure cross-tab broadcast is notified
-          try {
-            const bc = new BroadcastChannel("dnd-timer-channel");
-            bc.postMessage({ type: "STOP_SESSION" });
-            bc.close();
-          } catch {}
-
-          // Slight buffer to guarantee Chrome declarativeNetRequest network filter clears
-          setTimeout(() => {
-            window.location.replace(destination);
-          }, 150);
-        };
-
-        performRedirect();
-      }
-    }
-  }, [isRunning, blockedSite, isRedirecting]);
-
-  const handlePauseAndProceed = async () => {
+  const handleProceed = async () => {
     if (!blockedSite || isRedirecting) return;
     setIsRedirecting(true);
-    pauseTimer();
+    if (isRunning) {
+      pauseTimer();
+    }
 
     try {
       await Promise.race([
@@ -585,7 +568,7 @@ function BlockedContent() {
 
           {blockedSite && (
             <button
-              onClick={handlePauseAndProceed}
+              onClick={handleProceed}
               disabled={isRedirecting}
               className={`flex-shrink-0 whitespace-nowrap px-4 sm:px-5 py-2.5 sm:py-3 rounded-full text-xs font-medium tracking-wide transition-all border backdrop-blur-md cursor-pointer ${
                 isDark
@@ -593,7 +576,7 @@ function BlockedContent() {
                   : "bg-black/5 border-black/10 text-slate-600 hover:text-black hover:bg-black/10"
               }`}
             >
-              {isRedirecting ? "Unblocking..." : "Pause & Proceed"}
+              {isRedirecting ? "Unblocking..." : isRunning ? "Pause & Proceed" : "Proceed to Website"}
             </button>
           )}
 

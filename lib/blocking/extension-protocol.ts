@@ -20,6 +20,11 @@ export interface ActiveSessionPayload {
   secondsRemaining: number;
   endsAt: number | null; // Timestamp (Date.now() + remainingMs)
   blockDuringBreaks?: boolean;
+  totalDuration?: number;
+  cycle?: number;
+  totalCycles?: number;
+  anchor?: string;
+  intent?: string;
 }
 
 export type ExtensionMessageType =

@@ -158,7 +158,24 @@ export function getDeflectionLogs(): DeflectionEventRecord[] {
     const raw = localStorage.getItem(DEFLECTIONS_LOG_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+
+    // Filter out accidental duplicate adjacent entries within 3.5s of each other
+    const sanitized: DeflectionEventRecord[] = [];
+    for (let i = 0; i < parsed.length; i++) {
+      const item = parsed[i];
+      if (!item || !item.domain) continue;
+      if (sanitized.length > 0) {
+        const prev = sanitized[sanitized.length - 1];
+        const prevClean = (prev.domain || "").toLowerCase().trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+        const itemClean = (item.domain || "").toLowerCase().trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+        if (prevClean === itemClean && Math.abs(prev.timestamp - item.timestamp) < 3500) {
+          continue; // Skip duplicate adjacent entry
+        }
+      }
+      sanitized.push(item);
+    }
+    return sanitized;
   } catch {
     return [];
   }
@@ -168,11 +185,23 @@ export function recordDeflectionEvent(domain: string, url?: string): void {
   if (typeof window === "undefined") return;
   try {
     const logs = getDeflectionLogs();
+    const cleanDomain = domain.toLowerCase().trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+    const now = Date.now();
+
+    // De-duplication: Ignore duplicate events for the same domain within 3.5s
+    if (logs.length > 0) {
+      const recent = logs[0];
+      const recentClean = (recent.domain || "").toLowerCase().trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+      if (recentClean === cleanDomain && Math.abs(now - recent.timestamp) < 3500) {
+        return;
+      }
+    }
+
     const newLog: DeflectionEventRecord = {
-      id: `defl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: `defl_${now}_${Math.random().toString(36).slice(2, 6)}`,
       domain,
       url,
-      timestamp: Date.now(),
+      timestamp: now,
     };
     // Keep up to 100 recent deflection events
     const updated = [newLog, ...logs].slice(0, 100);
@@ -184,6 +213,19 @@ export function recordDeflectionEvent(domain: string, url?: string): void {
 }
 
 export function incrementDeflection(urlOrDomain: string): void {
+  const cleanDomain = urlOrDomain.toLowerCase().trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  const now = Date.now();
+  const logs = getDeflectionLogs();
+
+  // Guard against double increment if already logged within 3.5s
+  if (logs.length > 0) {
+    const recent = logs[0];
+    const recentClean = (recent.domain || "").toLowerCase().trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+    if (recentClean === cleanDomain && Math.abs(now - recent.timestamp) < 3500) {
+      return;
+    }
+  }
+
   const current = getStoredBlocklist();
   const lower = urlOrDomain.toLowerCase();
   let matched = false;

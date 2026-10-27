@@ -3,6 +3,8 @@
  * Local-first storage for user focus sessions, daily rhythms, and habit streaks.
  */
 
+import { getDeflectionLogs } from "../blocking/blocklist-store";
+
 export interface SessionHistoryRecord {
   id: string;
   sessionCode: string;
@@ -101,15 +103,26 @@ export function getStoredSessions(): SessionHistoryRecord[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    // Clean up if first run after update
-    if (!localStorage.getItem(LEGACY_CLEANED_KEY)) {
-      const cleaned = cleanupLegacyDummyData(parsed);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
-      localStorage.setItem(LEGACY_CLEANED_KEY, "true");
-      return cleaned;
+    // Filter out dummy data
+    const cleaned = cleanupLegacyDummyData(parsed);
+
+    // De-duplicate any accidental duplicate records within 3.5s of each other
+    const sanitized: SessionHistoryRecord[] = [];
+    for (let i = 0; i < cleaned.length; i++) {
+      const item = cleaned[i];
+      if (!item || !item.startedAt) continue;
+      if (sanitized.length > 0) {
+        const prev = sanitized[sanitized.length - 1];
+        const prevTime = new Date(prev.completedAt || prev.startedAt).getTime();
+        const itemTime = new Date(item.completedAt || item.startedAt).getTime();
+        if (prev.mode === item.mode && Math.abs(prevTime - itemTime) < 3500) {
+          continue; // Skip duplicate adjacent entry
+        }
+      }
+      sanitized.push(item);
     }
 
-    return parsed;
+    return sanitized;
   } catch {
     return [];
   }
@@ -186,39 +199,61 @@ export function recordCompletedSession(params: {
   endedEarly?: boolean;
   goal?: string;
   intent?: string;
-}): SessionHistoryRecord {
+}): SessionHistoryRecord | null {
+  // Only focus sessions are tracked as formal focus session history
+  if (params.mode !== "focus") {
+    return null;
+  }
+
   const sessions = getStoredSessions();
+  const now = Date.now();
+
+  // Guard against duplicate session recording within 3.5s
+  if (sessions.length > 0) {
+    const recent = sessions[0];
+    const recentTime = new Date(recent.completedAt || recent.startedAt).getTime();
+    if (recent.mode === params.mode && Math.abs(now - recentTime) < 3500) {
+      return recent;
+    }
+  }
+
   const count = sessions.length + 1;
   const sessionCode = `#SESS-${String(count).padStart(4, "0")}`;
 
-  const startedAt = new Date(Date.now() - params.actualSeconds * 1000);
-  const completedAt = new Date();
+  const startedAt = new Date(now - params.actualSeconds * 1000);
+  const completedAt = new Date(now);
 
   const isSuccess = !params.endedEarly && params.actualSeconds >= params.plannedSeconds;
-  const deflections = params.deflectionsCount || 0;
+
+  // Accurately compute deflections that occurred during this specific session interval
+  let deflections = params.deflectionsCount;
+  if (deflections === undefined && typeof window !== "undefined") {
+    try {
+      const allLogs = getDeflectionLogs();
+      const sStart = startedAt.getTime();
+      const sEnd = completedAt.getTime();
+      deflections = allLogs.filter((d) => d.timestamp >= sStart && d.timestamp <= sEnd).length;
+    } catch {
+      deflections = 0;
+    }
+  }
+  if (deflections === undefined) {
+    deflections = 0;
+  }
 
   let blocksDesc = "";
   let blockColor = "text-[#64748b] dark:text-[#7e8c9f]";
 
-  if (params.mode === "focus") {
-    if (deflections === 0) {
-      blocksDesc = "0 distractions (In the zone)";
-      blockColor = "text-emerald-500 dark:text-emerald-400";
-    } else {
-      blocksDesc = `${deflections} distraction${deflections > 1 ? "s" : ""} prevented`;
-      blockColor = "text-amber-500 dark:text-amber-400";
-    }
+  if (deflections === 0) {
+    blocksDesc = "0 distractions (In the zone)";
+    blockColor = "text-emerald-500 dark:text-emerald-400";
   } else {
-    blocksDesc = "Free browsing";
+    blocksDesc = `${deflections} distraction${deflections > 1 ? "s" : ""} prevented`;
+    blockColor = "text-amber-500 dark:text-amber-400";
   }
 
   const plannedMins = Math.round(params.plannedSeconds / 60);
-  const protocolName =
-    params.mode === "focus"
-      ? `Deep Focus (${plannedMins}m)`
-      : params.mode === "shortBreak"
-      ? `Short Break (${plannedMins}m)`
-      : `Long Break (${plannedMins}m)`;
+  const protocolName = `Deep Focus (${plannedMins}m)`;
 
   const formatSecs = (s: number) => {
     const m = Math.floor(s / 60);
@@ -229,7 +264,7 @@ export function recordCompletedSession(params: {
   const targetStr = `${formatSecs(params.actualSeconds)} / ${formatSecs(params.plannedSeconds)}`;
 
   const newRecord: SessionHistoryRecord = {
-    id: `sess_${Date.now()}`,
+    id: `sess_${now}`,
     sessionCode,
     timeDisplay: formatTimeDisplay(startedAt),
     startedAt: startedAt.toISOString(),
