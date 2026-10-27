@@ -239,6 +239,7 @@ export interface DeflectionDayStat {
 }
 
 export function getDeflectionWeekDateRange(): string {
+  if (typeof window === "undefined") return "";
   const now = new Date();
   const dayOfWeek = now.getDay();
   const distanceToMonday = (dayOfWeek + 6) % 7;
@@ -255,6 +256,7 @@ export function getDeflectionWeekDateRange(): string {
 }
 
 export function getDeflectionsByDay(): DeflectionDayStat[] {
+  if (typeof window === "undefined") return [];
   const logs = getDeflectionLogs();
   const now = new Date();
 

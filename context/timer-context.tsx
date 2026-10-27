@@ -187,7 +187,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const { isDark } = useTheme();
 
   // Settings state and ref
-  const [settings, setSettings] = useState<UserSettingsPayload>(() => getStoredSettings());
+  const [settings, setSettings] = useState<UserSettingsPayload>(DEFAULT_SETTINGS);
   const settingsRef = useRef<UserSettingsPayload>(settings);
   useEffect(() => {
     settingsRef.current = settings;
@@ -205,57 +205,36 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     totalCyclesRef.current = totalCycles;
   }, [totalCycles]);
 
-  const [initialState] = useState(() => getInitialTimerState());
+  const defaultDuration = DEFAULT_SETTINGS.deepFocusMinutes * 60;
 
-  const [mode, setModeState] = useState<SessionMode>(() => initialState?.mode || "focus");
+  const [mode, setModeState] = useState<SessionMode>("focus");
   const modeRef = useRef<SessionMode>(mode);
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
 
-  const [secondsLeft, setSecondsLeft] = useState<number>(() => {
-    const s = getStoredSettings();
-    const d = getModeDurations(s);
-    if (initialState) {
-      const now = Date.now();
-      if (initialState.isRunning && initialState.endsAt && initialState.endsAt > now) {
-        return Math.max(0, Math.ceil((initialState.endsAt - now) / 1000));
-      }
-      return initialState.secondsLeft ?? d[initialState.mode || "focus"];
-    }
-    return d.focus;
-  });
+  const [secondsLeft, setSecondsLeft] = useState<number>(defaultDuration);
   const secondsLeftRef = useRef<number>(secondsLeft);
   useEffect(() => {
     secondsLeftRef.current = secondsLeft;
   }, [secondsLeft]);
 
-  const [totalSeconds, setTotalSeconds] = useState<number>(() => {
-    const s = getStoredSettings();
-    const d = getModeDurations(s);
-    return initialState?.totalSeconds || d[initialState?.mode || "focus"];
-  });
+  const [totalSeconds, setTotalSeconds] = useState<number>(defaultDuration);
 
-  const [isRunning, setIsRunning] = useState<boolean>(() => {
-    if (initialState) {
-      const now = Date.now();
-      return Boolean(initialState.isRunning && initialState.endsAt && initialState.endsAt > now);
-    }
-    return false;
-  });
+  const [isRunning, setIsRunning] = useState<boolean>(false);
   const isRunningRef = useRef<boolean>(isRunning);
   useEffect(() => {
     isRunningRef.current = isRunning;
   }, [isRunning]);
 
-  const [cycle, setCycle] = useState<number>(() => initialState?.cycle || 1);
+  const [cycle, setCycle] = useState<number>(1);
   const cycleRef = useRef<number>(cycle);
   useEffect(() => {
     cycleRef.current = cycle;
   }, [cycle]);
 
-  const endsAtRef = useRef<number | null>(initialState?.endsAt || null);
-  const sessionIdRef = useRef<string | null>(initialState?.sessionId || null);
+  const endsAtRef = useRef<number | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   // Sync mode to document element data attribute
   const applyModeAttribute = (m: SessionMode) => {
@@ -389,9 +368,14 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    // Load initial settings from storage on mount
+    const storedSettings = getStoredSettings();
+    setSettings(storedSettings);
+    const initialDurations = getModeDurations(storedSettings);
+
     const applyState = (saved: PersistedTimerState) => {
       const now = Date.now();
-      const currentDurations = durationsRef.current;
+      const currentDurations = durationsRef.current || initialDurations;
       const targetMode = saved.mode || "focus";
       const fallbackDuration = currentDurations[targetMode] || 25 * 60;
 
@@ -422,6 +406,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       if (raw) {
         applyState(JSON.parse(raw));
       } else {
+        const focusDuration = initialDurations.focus;
+        setSecondsLeft(focusDuration);
+        setTotalSeconds(focusDuration);
         applyModeAttribute("focus");
       }
     } catch {

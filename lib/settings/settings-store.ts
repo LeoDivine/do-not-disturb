@@ -1,4 +1,5 @@
 import { UserSettingsPayload } from "../sync/sync-types";
+export type { UserSettingsPayload };
 
 export const LOCAL_SETTINGS_KEY = "dnd_user_settings";
 export const SETTINGS_UPDATED_EVENT = "dnd-settings-updated";

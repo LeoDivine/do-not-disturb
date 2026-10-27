@@ -61,6 +61,24 @@ export interface SessionStats {
   distractionFreeRate: string;
 }
 
+export const EMPTY_SESSION_STATS: SessionStats = {
+  totalFocusSeconds: 0,
+  totalFocusHours: "0.0",
+  weeklyFocusHours: "0.0",
+  todayFocusSeconds: 0,
+  todayFocusFormatted: "0m",
+  completedCount: 0,
+  totalCount: 0,
+  completionRate: "0.0%",
+  currentStreak: 0,
+  longestStreak: 0,
+  totalDeflections: 0,
+  weekDateRange: "",
+  daysThisWeek: [],
+  peakWindow: null,
+  distractionFreeRate: "100%",
+};
+
 const STORAGE_KEY = "dnd_focus_sessions";
 const LEGACY_CLEANED_KEY = "dnd_cleaned_dummy_sessions_v1";
 
@@ -240,6 +258,10 @@ export function recordCompletedSession(params: {
  * Calculates accurate statistics from real recorded sessions
  */
 export function getSessionStats(): SessionStats {
+  if (typeof window === "undefined") {
+    return EMPTY_SESSION_STATS;
+  }
+
   const sessions = getStoredSessions();
   const focusSessions = sessions.filter((s) => s.mode === "focus");
 

@@ -10,6 +10,7 @@ import {
   SESSIONS_UPDATED_EVENT,
   SessionHistoryRecord,
   SessionStats,
+  EMPTY_SESSION_STATS,
 } from "../../lib/sessions/session-store";
 import {
   getTotalDeflections,
@@ -21,7 +22,7 @@ export default function StatisticsPage() {
   const { mode, colors, activeColor, activeContainer, activeBorder } = useTimer();
 
   const [records, setRecords] = useState<SessionHistoryRecord[]>([]);
-  const [stats, setStats] = useState<SessionStats>(() => getSessionStats());
+  const [stats, setStats] = useState<SessionStats>(EMPTY_SESSION_STATS);
   const [totalDeflections, setTotalDeflections] = useState<number>(0);
 
   useEffect(() => {

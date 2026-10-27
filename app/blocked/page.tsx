@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useTheme } from "../../context/theme-context";
 import { useTimer } from "../../context/timer-context";
@@ -247,7 +248,7 @@ function BlockedContent() {
     const nextIdx1 = (currentIndex + 1) % AMBIENT_IMAGES.length;
     const nextIdx2 = (currentIndex + 2) % AMBIENT_IMAGES.length;
     [currentIndex, nextIdx1, nextIdx2].forEach((idx) => {
-      const img = new Image();
+      const img = new window.Image();
       img.src = AMBIENT_IMAGES[idx].url;
     });
   }, [currentIndex]);
@@ -379,16 +380,28 @@ function BlockedContent() {
       <header className="relative z-10 w-full max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
         <Link
           href="/"
-          className={`group flex items-center gap-2.5 text-xs tracking-wider uppercase font-medium transition-opacity hover:opacity-100 ${
-            isDark ? "text-white/70" : "text-slate-700"
-          }`}
+          className="group flex items-center transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:outline-none rounded-lg p-0.5"
+          aria-label="Do Not Disturb Home"
           title="Return to Home"
         >
-          <span
-            className="w-2 h-2 rounded-full transition-transform group-hover:scale-125"
-            style={{ backgroundColor: activeColor }}
+          {/* Dark mode logo (white artwork) shown on dark theme */}
+          <Image
+            src="/logo-dark.png"
+            alt="Do Not Disturb"
+            width={130}
+            height={31}
+            priority
+            className={`${isDark ? "block" : "hidden"} dark:block h-6 sm:h-7 w-auto object-contain transition-transform duration-200 group-hover:scale-[1.02]`}
           />
-          <span>Do Not Disturb</span>
+          {/* Light mode logo (black artwork) shown on light theme */}
+          <Image
+            src="/logo-light.png"
+            alt="Do Not Disturb"
+            width={130}
+            height={31}
+            priority
+            className={`${!isDark ? "block" : "hidden"} dark:hidden h-6 sm:h-7 w-auto object-contain transition-transform duration-200 group-hover:scale-[1.02]`}
+          />
         </Link>
 
         {/* Controls: Scenery transition toggle + Theme toggle */}

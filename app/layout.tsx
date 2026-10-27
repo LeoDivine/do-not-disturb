@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "../context/theme-context";
 import { TimerProvider } from "../context/timer-context";
@@ -9,6 +10,7 @@ import Footer from "../components/footer";
 import MiniTimerWindow from "../components/mini-timer-window";
 import GlobalShortcuts from "../components/global-shortcuts";
 import SyncModal from "../components/SyncModal";
+import ExtensionInstallBanner from "../components/extension-install-banner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,7 +39,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <script
+        <Script
+          id="dnd-theme-mode-init"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(function(){
               try {
@@ -64,6 +68,7 @@ export default function RootLayout({
           <TimerProvider>
             <SyncProvider>
               <Navbar />
+              <ExtensionInstallBanner />
               <div className="flex-1 flex flex-col">{children}</div>
               <Footer />
               <MiniTimerWindow />

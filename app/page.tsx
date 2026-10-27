@@ -13,6 +13,7 @@ import {
   getSessionStats,
   SESSIONS_UPDATED_EVENT,
   SessionStats,
+  EMPTY_SESSION_STATS,
 } from "../lib/sessions/session-store";
 import { getSoundSynth, AcousticPreset, ACOUSTIC_PRESETS } from "../lib/sound/sound-synth";
 
@@ -53,7 +54,7 @@ export default function DashboardPage() {
   const [isEditingIntent, setIsEditingIntent] = useState<boolean>(false);
 
   // Real stats & real blocked distractions
-  const [stats, setStats] = useState<SessionStats>(() => getSessionStats());
+  const [stats, setStats] = useState<SessionStats>(EMPTY_SESSION_STATS);
   const [recentBlocked, setRecentBlocked] = useState<Array<{ id: string; domain: string; timeAgo: string }>>([]);
   const [totalDeflections, setTotalDeflections] = useState<number>(0);
 
@@ -311,9 +312,12 @@ export default function DashboardPage() {
                 >
                   {colors.badgeLabel}
                 </span>
-                <span className={`text-6xl font-semibold tracking-tight tabular-nums ${
-                  isDark ? "text-white" : "text-[#0f172a]"
-                }`}>
+                <span
+                  className={`text-6xl font-semibold tracking-tight tabular-nums ${
+                    isDark ? "text-white" : "text-[#0f172a]"
+                  }`}
+                  suppressHydrationWarning
+                >
                   {formatTime(secondsLeft)}
                 </span>
                 <div className={`flex items-center gap-1.5 text-xs mt-3 ${

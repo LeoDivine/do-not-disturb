@@ -35,22 +35,26 @@ export default function BlocklistPage() {
 
   const [totalDeflections, setTotalDeflections] = useState<number>(0);
   const [deflectionsByDay, setDeflectionsByDay] = useState<DeflectionDayStat[]>([]);
+  const [weekDateRange, setWeekDateRange] = useState<string>("");
 
   // Load from persistent storage
   useEffect(() => {
     setEndpoints(getStoredBlocklist());
     setTotalDeflections(getTotalDeflections());
     setDeflectionsByDay(getDeflectionsByDay());
+    setWeekDateRange(getDeflectionWeekDateRange());
 
     const handleUpdate = (e: CustomEvent<BlocklistEndpoint[]>) => {
       setEndpoints(e.detail);
       setTotalDeflections(getTotalDeflections());
       setDeflectionsByDay(getDeflectionsByDay());
+      setWeekDateRange(getDeflectionWeekDateRange());
     };
 
     const handleDeflectionsUpdate = () => {
       setTotalDeflections(getTotalDeflections());
       setDeflectionsByDay(getDeflectionsByDay());
+      setWeekDateRange(getDeflectionWeekDateRange());
     };
 
     window.addEventListener("dnd-blocklist-updated" as any, handleUpdate);
@@ -62,24 +66,21 @@ export default function BlocklistPage() {
   }, []);
 
   const syncWithExtension = (updatedEndpoints: BlocklistEndpoint[]) => {
-    if (isRunning && mode === "focus") {
-      const activeTargets = updatedEndpoints
-        .filter((e) => e.active)
-        .map((e) => ({
-          id: e.id,
-          hostname: e.domain,
-          includeSubdomains: Boolean(e.subdomainNote),
-          category: e.category,
-          enabled: e.active,
-        }));
-      extensionClient.sendMessage({
-        type: "DND_UPDATE_BLOCKLIST",
-        requestId: `update_${Date.now()}`,
-        domains: activeTargets,
-      });
-    }
+    const activeTargets = updatedEndpoints
+      .filter((e) => e.active)
+      .map((e) => ({
+        id: e.id,
+        hostname: e.domain,
+        includeSubdomains: Boolean(e.subdomainNote),
+        category: e.category,
+        enabled: e.active,
+      }));
+    extensionClient.sendMessage({
+      type: "DND_UPDATE_BLOCKLIST",
+      requestId: `update_${Date.now()}`,
+      domains: activeTargets,
+    }).catch(() => {});
   };
-
   const handleAddDomain = (e: React.FormEvent) => {
     e.preventDefault();
     setInputError(null);
@@ -166,101 +167,163 @@ export default function BlocklistPage() {
         </div>
       </div>
 
-      {/* Extension Integration Banner — Minimalist & Zen */}
+      {/* Extension Integration Card — Friendly, Zen & Human */}
       <div
-        className={`p-4 rounded-2xl border transition-all ${
-          isInstalled
-            ? ""
-            : isDark ? "bg-[#101620] border-[#1d2634]" : "bg-white border-[#cbd5e1] shadow-xs"
+        className={`p-5 rounded-2xl border transition-all ${
+          isDark ? "bg-[#101620] border-[#1d2634]" : "bg-white border-[#e2e8f0] shadow-xs"
         }`}
-        style={
-          isInstalled
-            ? {
-                backgroundColor: isDark ? colors.containerDark : colors.container,
-                borderColor: activeBorder,
-              }
-            : undefined
-        }
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
-                isInstalled
-                  ? ""
-                  : "bg-amber-500/10 border-amber-500/30 text-amber-500"
-              }`}
-              style={
-                isInstalled
-                  ? {
-                      backgroundColor: isDark ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.6)",
-                      borderColor: activeBorder,
-                      color: activeColor,
-                    }
-                  : undefined
-              }
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${isInstalled && isBlockingActive ? "animate-pulse" : ""}`}
-                style={{ backgroundColor: isInstalled ? activeColor : "#f59e0b" }}
-              />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span
-                  className="text-xs font-semibold tracking-wide"
-                  style={isInstalled ? { color: activeColor } : undefined}
-                >
-                  {isInstalled ? "Extension connected" : "Extension not found"}
-                </span>
-                {version && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 text-slate-500 dark:text-slate-400 font-mono">v{version}</span>
-                )}
-              </div>
-              <p className={`text-xs mt-0.5 ${isDark ? "text-slate-400" : "text-slate-600"}`}>
-                {isInstalled
-                  ? isBlockingActive
-                    ? `Active in browser — distracting sites are currently paused.`
-                    : "Ready to pause distracting sites when you start a focus session."
-                  : "Add the companion extension to pause distracting sites across your browser tabs."}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            {!isInstalled && (
-              <button
-                type="button"
-                onClick={() => setShowExtensionHelp(!showExtensionHelp)}
-                className="px-3.5 py-1.5 rounded-full text-xs font-medium border transition-colors bg-white dark:bg-[#141b24] hover:bg-slate-50 dark:hover:bg-[#1f2937] text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700"
+        {isInstalled ? (
+          <div className="flex flex-col gap-4">
+            {/* Status & Message */}
+            <div className="flex items-start gap-3.5">
+              {/* Visual Icon */}
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border transition-colors ${
+                  isDark ? "bg-[#0b0f17] border-[#1d2634]" : "bg-[#f8fafc] border-[#e2e8f0]"
+                }`}
+                style={{ color: activeColor }}
               >
-                {showExtensionHelp ? "Close guide" : "Setup guide"}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={refreshExtension}
-              title="Check again"
-              className="p-2 rounded-full text-xs border transition-colors hover:opacity-80 bg-slate-50 dark:bg-[#141b24] border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-              </svg>
-            </button>
-          </div>
-        </div>
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+              </div>
 
-        {/* Collapsible Installation Guide */}
-        {showExtensionHelp && !isInstalled && (
-          <div className={`mt-3 pt-3 border-t text-xs ${isDark ? "border-[#1d2634] text-slate-400" : "border-slate-200 text-slate-600"}`}>
-            <div className="font-medium mb-2 text-slate-900 dark:text-white">Simple 3-step setup:</div>
-            <ol className="list-decimal list-inside space-y-1.5 ml-1 leading-relaxed">
-              <li>Open <code className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px]">chrome://extensions</code> in a new tab.</li>
-              <li>Turn on <strong className="text-slate-900 dark:text-white">Developer mode</strong> in the top right.</li>
-              <li>Click <strong className="text-slate-900 dark:text-white">Load unpacked</strong> and select the <code className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px]">extension</code> folder.</li>
-            </ol>
-            <div className="mt-2 text-[11px] font-medium" style={{ color: activeColor }}>It connects automatically once loaded!</div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${isBlockingActive ? "animate-pulse" : ""}`}
+                    style={{ backgroundColor: activeColor }}
+                  />
+                  <h2 className={`font-semibold text-sm ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+                    {isBlockingActive
+                      ? "Browser protection is active"
+                      : "Browser extension is connected"}
+                  </h2>
+                </div>
+                <p className={`text-xs mt-1 leading-relaxed max-w-2xl ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
+                  {isBlockingActive
+                    ? "Your blocked websites are currently paused in your browser. If you try to visit one, you'll be gently redirected to your focus screen so you can stay in flow."
+                    : `Your companion extension is running quietly in the background. It will automatically pause ${
+                        endpoints.filter((e) => e.active).length === 1
+                          ? "1 website"
+                          : `${endpoints.filter((e) => e.active).length} websites`
+                      } whenever you start a focus session.`}
+                </p>
+              </div>
+            </div>
+
+            {/* Natural, friendly reassurance row */}
+            <div
+              className={`pt-3 border-t grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs ${
+                isDark ? "border-[#1d2634] text-[#7e8c9f]" : "border-[#f1f5f9] text-[#64748b]"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-emerald-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>Works across all open tabs</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-emerald-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>Pauses only during focus sessions</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-emerald-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>100% private — runs on your device</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Disconnected State — Warm, helpful & simple */
+          <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3.5">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border border-amber-500/20 bg-amber-500/10 text-amber-500">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <line x1="8" y1="21" x2="16" y2="21" />
+                    <line x1="12" y1="17" x2="12" y2="21" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                    <h2 className={`font-semibold text-sm ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+                      Protect your browser tabs
+                    </h2>
+                  </div>
+                  <p className={`text-xs mt-1 leading-relaxed max-w-2xl ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
+                    Add the lightweight companion extension so distracting websites are quietly paused in your browser while you focus.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowExtensionHelp(!showExtensionHelp)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-[#1a2330] ${
+                    isDark ? "bg-[#141b24] border-[#1d2634] text-slate-200" : "bg-white border-[#e2e8f0] text-slate-700"
+                  }`}
+                >
+                  {showExtensionHelp ? "Hide guide" : "How to install (30s)"}
+                </button>
+                <button
+                  type="button"
+                  onClick={refreshExtension}
+                  title="Check connection"
+                  className={`p-2 rounded-xl text-xs border transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-[#1a2330] ${
+                    isDark ? "bg-[#141b24] border-[#1d2634] text-slate-400" : "bg-white border-[#e2e8f0] text-slate-600"
+                  }`}
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="23 4 23 10 17 10" />
+                    <polyline points="1 20 1 14 7 14" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Simple Step-by-Step Guide */}
+            {showExtensionHelp && (
+              <div className={`pt-3 border-t text-xs ${isDark ? "border-[#1d2634] text-slate-400" : "border-[#f1f5f9] text-slate-600"}`}>
+                <div className="font-medium mb-2.5 text-slate-900 dark:text-white">Quick 3-step setup:</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className={`p-3 rounded-xl border ${isDark ? "bg-[#0b0f17] border-[#1d2634]" : "bg-[#f8fafc] border-[#e2e8f0]"}`}>
+                    <div className="font-semibold text-amber-500 mb-1">1. Open Extensions</div>
+                    <div>Open <code className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px]">chrome://extensions</code> in a new tab.</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isDark ? "bg-[#0b0f17] border-[#1d2634]" : "bg-[#f8fafc] border-[#e2e8f0]"}`}>
+                    <div className="font-semibold text-amber-500 mb-1">2. Enable Developer Mode</div>
+                    <div>Turn on the toggle switch in the top right corner.</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isDark ? "bg-[#0b0f17] border-[#1d2634]" : "bg-[#f8fafc] border-[#e2e8f0]"}`}>
+                    <div className="font-semibold text-amber-500 mb-1">3. Load Unpacked</div>
+                    <div>Click <strong className="text-slate-900 dark:text-white">Load unpacked</strong> and choose the <code className="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px]">extension</code> folder.</div>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center justify-between text-[11px]">
+                  <span className="text-emerald-600 dark:text-emerald-400">✓ It connects automatically once loaded — no restart needed.</span>
+                  <button
+                    type="button"
+                    onClick={refreshExtension}
+                    className="font-medium hover:underline cursor-pointer"
+                    style={{ color: activeColor }}
+                  >
+                    Check again →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -575,7 +638,7 @@ export default function BlocklistPage() {
             {/* Weekly Flow Chart */}
             <div className="mb-4">
               <div className={`flex items-center justify-between text-xs mb-2 ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
-                <span>Weekly overview • {getDeflectionWeekDateRange()}</span>
+                <span>Weekly overview{weekDateRange ? ` • ${weekDateRange}` : ""}</span>
                 <span>
                   {totalDeflections > 0
                     ? `~${Math.round(totalDeflections / 7)} distractions avoided / day`

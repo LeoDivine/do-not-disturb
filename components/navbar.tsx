@@ -2,12 +2,18 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useTheme } from "../context/theme-context";
 import { useTimer } from "../context/timer-context";
 import { useExtensionStatus } from "../lib/blocking/use-extension-status";
 import { getStoredBlocklist } from "../lib/blocking/blocklist-store";
-import { getSessionStats, SESSIONS_UPDATED_EVENT, SessionStats } from "../lib/sessions/session-store";
+import {
+  getSessionStats,
+  SESSIONS_UPDATED_EVENT,
+  SessionStats,
+  EMPTY_SESSION_STATS,
+} from "../lib/sessions/session-store";
 import SyncButton from "./SyncButton";
 import UserNav from "./UserNav";
 
@@ -39,7 +45,7 @@ export default function Navbar() {
   const islandRef = useRef<HTMLDivElement | null>(null);
   const { isInstalled, isBlockingActive } = useExtensionStatus();
   const [blockedSitesCount, setBlockedSitesCount] = useState(0);
-  const [stats, setStats] = useState<SessionStats>(() => getSessionStats());
+  const [stats, setStats] = useState<SessionStats>(EMPTY_SESSION_STATS);
 
   useEffect(() => {
     setBlockedSitesCount(getStoredBlocklist().filter((e) => e.active).length);
@@ -123,24 +129,28 @@ export default function Navbar() {
           {/* Logo */}
           <Link
             href="/"
-            className="flex items-center gap-2.5 group focus-visible:ring-2 focus-visible:outline-none rounded-lg p-0.5"
+            className="flex items-center group focus-visible:ring-2 focus-visible:outline-none rounded-lg p-0.5 transition-opacity hover:opacity-90"
             style={{ outlineColor: "var(--mode-accent)" }}
             aria-label="Do Not Disturb Home"
           >
-            <div
-              className="w-6 h-6 rounded-md border flex items-center justify-center transition-all group-hover:scale-105"
-              style={{
-                backgroundColor: "var(--mode-container)",
-                borderColor: "var(--mode-border)",
-                color: "var(--mode-accent)",
-              }}
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <circle cx="12" cy="12" r="8" />
-                <circle cx="12" cy="12" r="2.5" fill="currentColor" />
-              </svg>
-            </div>
-            <span className="font-semibold text-[15px] tracking-tight">Do Not Disturb</span>
+            {/* Dark mode logo (white artwork) shown on dark theme */}
+            <Image
+              src="/logo-dark.png"
+              alt="Do Not Disturb"
+              width={140}
+              height={33}
+              priority
+              className={`${isDark ? "block" : "hidden"} dark:block h-7 w-auto object-contain transition-transform duration-200 group-hover:scale-[1.02]`}
+            />
+            {/* Light mode logo (black artwork) shown on light theme */}
+            <Image
+              src="/logo-light.png"
+              alt="Do Not Disturb"
+              width={140}
+              height={33}
+              priority
+              className={`${!isDark ? "block" : "hidden"} dark:hidden h-7 w-auto object-contain transition-transform duration-200 group-hover:scale-[1.02]`}
+            />
           </Link>
 
           {/* Actual Page Navigation Links */}
@@ -210,6 +220,7 @@ export default function Navbar() {
                 <span
                   className="font-mono font-medium transition-colors"
                   style={{ color: isRunning ? activeColor : undefined }}
+                  suppressHydrationWarning
                 >
                   {isRunning ? formatTime(secondsLeft) : colors.name}
                 </span>
@@ -306,7 +317,10 @@ export default function Navbar() {
               {/* 2. Hero Countdown & Action Controls */}
               <div className="flex items-center justify-between gap-3 pt-1">
                 <div>
-                  <div className="text-3xl font-bold font-mono tracking-tight tabular-nums">
+                  <div
+                    className="text-3xl font-bold font-mono tracking-tight tabular-nums"
+                    suppressHydrationWarning
+                  >
                     {formatTime(secondsLeft)}
                   </div>
                   <div className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] mt-0.5">
