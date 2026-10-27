@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Do Not Disturb (DND)
 
-## Getting Started
+> A modern, privacy-first focus and productivity platform combining a Next.js 16 web application, a Chromium Manifest V3 browser extension for network-level distraction deflection, procedural Web Audio soundscapes, and local-first cloud synchronization.
 
-First, run the development server:
+---
 
+## 📖 Documentation
+
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
+
+- **[Documentation Hub](docs/README.md)**: Main documentation index and navigation guide.
+- **[System Architecture](docs/architecture.md)**: Technical architecture, component interactions, Web Audio synthesis, and state synchronization.
+- **[Companion Extension Guide](docs/extension-guide.md)**: Chromium MV3 extension architecture, `declarativeNetRequest` rules engine, installation, and debugging.
+- **[REST API Reference](docs/api-reference.md)**: Full API specifications for authentication, data synchronization, and assets.
+- **[Database Schema & Models](docs/database-schema.md)**: PostgreSQL models, relations, enums, indexes, and migrations with Prisma ORM 7.
+- **[User Guide & Feature Manual](docs/user-guide.md)**: Guide to timer workflows, website deflection, soundscapes, analytics, and shortcuts.
+- **[Development & Deployment Guide](docs/development-guide.md)**: Local development setup, environment variables, database commands, and deployment.
+- **[Design System Tokens](docs/design.md)**: Serene Focus design tokens, palette, and typography.
+- **[Technical Implementation Plan](docs/do-not-disturb-technical-implementation-plan.md)**: Original technical specification and architectural plan.
+
+---
+
+## ⚡ Quick Start
+
+### 1. Prerequisites
+- Node.js 20+
+- pnpm 10+
+- PostgreSQL 14+
+
+### 2. Install & Configure
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Install dependencies
+pnpm install
+
+# Setup environment variables
+cp .env.example .env # or configure DATABASE_URL and AUTH_SECRET in .env
+
+# Generate Prisma Client & run migrations
+pnpm prisma:generate
+pnpm prisma:migrate
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 3. Run Development Server
+```bash
+pnpm dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. Install Companion Browser Extension
+1. Open `chrome://extensions` (or `edge://extensions` / `brave://extensions`).
+2. Enable **Developer mode** (top-right).
+3. Click **Load unpacked** and select the [`extension/`](extension/) directory.
+4. Visit `http://localhost:3000/blocklist` to confirm the extension is connected!
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 📜 License
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Private & Personal Project.
