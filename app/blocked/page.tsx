@@ -102,13 +102,31 @@ const BREATH_STEPS = [
 
 const ROTATION_INTERVAL_MS = 7500;
 
-function getDestinationUrl(site: string): string {
-  let clean = decodeURIComponent(site).trim();
-  clean = clean.replace(/^["']|["']$/g, "");
-  if (!/^https?:\/\//i.test(clean)) {
-    clean = `https://${clean}`;
+function getDestinationUrl(site: string): string | null {
+  try {
+    let clean = decodeURIComponent(site).trim();
+    clean = clean.replace(/^["']|["']$/g, "");
+    if (
+      !clean ||
+      clean.startsWith("javascript:") ||
+      clean.startsWith("data:") ||
+      clean.startsWith("vbscript:")
+    ) {
+      return null;
+    }
+    // Disallow protocol-relative URLs like //evil.com
+    clean = clean.replace(/^\/+/, "");
+    if (!/^https?:\/\//i.test(clean)) {
+      clean = `https://${clean}`;
+    }
+    const parsed = new URL(clean);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.href;
+  } catch {
+    return null;
   }
-  return clean;
 }
 
 function BlockedContent() {
@@ -164,42 +182,6 @@ function BlockedContent() {
 
     incrementDeflection(blockedSite);
   }, [blockedSite]);
-
-  // Ensure mini pop-up view is dismissed across all tabs while on /blocked
-  useEffect(() => {
-    // 1. Close local window-level PiP
-    if (typeof window !== "undefined" && "documentPictureInPicture" in window) {
-      try {
-        (window as unknown as { documentPictureInPicture?: { window?: Window } }).documentPictureInPicture?.window?.close();
-      } catch {}
-    }
-    if (typeof document !== "undefined" && document.pictureInPictureElement) {
-      try {
-        document.exitPictureInPicture().catch(() => {});
-      } catch {}
-    }
-
-    // 2. Broadcast across all tabs to dismiss PiP in any tab
-    try {
-      const bc = new BroadcastChannel("dnd-mini-window-control");
-      bc.postMessage({ type: "DISMISS_PIP" });
-      bc.close();
-    } catch {}
-
-    try {
-      localStorage.setItem("dnd_pip_dismiss_request", Date.now().toString());
-      localStorage.setItem("dnd_blocked_page_active", "true");
-    } catch {}
-
-    return () => {
-      try {
-        localStorage.removeItem("dnd_blocked_page_active");
-        const bc = new BroadcastChannel("dnd-mini-window-control");
-        bc.postMessage({ type: "RESTORE_PIP" });
-        bc.close();
-      } catch {}
-    };
-  }, []);
 
   // State to track manual user redirect action
   const [isRedirecting, setIsRedirecting] = useState<boolean>(false);
@@ -542,11 +524,11 @@ function BlockedContent() {
           Take a gentle pause. Protect your attention and remain in your flow.
         </p>
 
-        {/* Minimalist Actions (Strict Single Line, No Wrapping) */}
-        <div className="flex flex-row items-center justify-center gap-2.5 sm:gap-3 flex-nowrap whitespace-nowrap max-w-full overflow-x-auto py-1 px-2">
+        {/* Minimalist Actions (Responsive across small screens & desktop) */}
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 max-w-full py-1 px-2">
           <Link
             href="/"
-            className="flex-shrink-0 whitespace-nowrap px-4 sm:px-6 py-2.5 sm:py-3 rounded-full text-xs font-semibold tracking-wide flex items-center justify-center gap-1.5 transition-all duration-200 shadow-sm hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none"
+            className="flex-shrink-0 px-4 sm:px-6 py-2.5 sm:py-3 rounded-full text-xs font-semibold tracking-wide flex items-center justify-center gap-1.5 transition-all duration-200 shadow-sm hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none"
             style={{
               backgroundColor: activeColor,
               color:
@@ -570,7 +552,7 @@ function BlockedContent() {
             <button
               onClick={handleProceed}
               disabled={isRedirecting}
-              className={`flex-shrink-0 whitespace-nowrap px-4 sm:px-5 py-2.5 sm:py-3 rounded-full text-xs font-medium tracking-wide transition-all border backdrop-blur-md cursor-pointer ${
+              className={`flex-shrink-0 px-4 sm:px-5 py-2.5 sm:py-3 rounded-full text-xs font-medium tracking-wide transition-all border backdrop-blur-md cursor-pointer ${
                 isDark
                   ? "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
                   : "bg-black/5 border-black/10 text-slate-600 hover:text-black hover:bg-black/10"
@@ -582,7 +564,7 @@ function BlockedContent() {
 
           <Link
             href="/blocklist"
-            className={`flex-shrink-0 whitespace-nowrap px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-full text-xs font-medium tracking-wide transition-all border backdrop-blur-md ${
+            className={`flex-shrink-0 px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-full text-xs font-medium tracking-wide transition-all border backdrop-blur-md ${
               isDark
                 ? "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
                 : "bg-black/5 border-black/10 text-slate-600 hover:text-black hover:bg-black/10"

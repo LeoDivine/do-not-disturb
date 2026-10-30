@@ -74,8 +74,8 @@ The user interface is built on Next.js 16 with the App Router model:
 
 - `app/page.tsx`: Primary Focus Dashboard hosting the circular timer, mode selectors, daily focus summary, and ambient sound controls.
 - `app/blocklist/page.tsx`: Website blocklist management interface allowing users to view, add, toggle, and delete domains, as well as inspect extension health.
-- `app/statistics/page.tsx` & `app/analytics/page.tsx`: Session history charts, focus time totals, and deflection count metrics.
-- `app/shortcuts/page.tsx` & `app/keyboard-shortcuts/page.tsx`: Interactive keyboard shortcut configuration page.
+- `app/statistics/page.tsx`: Session history charts, focus time totals, and deflection count metrics.
+- `app/shortcuts/page.tsx`: Interactive keyboard shortcut configuration page.
 - `app/settings/page.tsx`: User configuration for session lengths, break cadence, blocking strictness, and theme preferences.
 - `app/blocked/page.tsx`: Deflection destination displaying a mindful breathing interface and the time remaining in the current focus block.
 
@@ -85,6 +85,8 @@ State management is separated into distinct single-responsibility React contexts
 
 1. **`TimerContext` (`context/timer-context.tsx`)**:
    - Manages timer countdown intervals, active session state (`running`, `paused`, `stopped`, `completed`), modes (`FOCUS`, `SHORT_BREAK`, `LONG_BREAK`), and cycle tracking.
+   - **Daily Cycle Reset Engine**: Persists `cycleDate` (`YYYY-MM-DD`) in `PersistedTimerState`. Automatically resets the focus cycle counter back to `1` every calendar day upon date rollover, initialization from storage, tab focus, or `document.visibilitychange` events.
+   - Cross-tab state synchronization via `BroadcastChannel` (`dnd-timer-channel`) and native `StorageEvent` listeners.
    - Emits synchronization events to the browser extension whenever timer state transitions occur.
    - Triggers audio notifications and chime playback upon session completion.
 
@@ -113,6 +115,10 @@ Rather than streaming heavy audio assets over the network, Do Not Disturb utiliz
   - The 40 Hz frequency difference stimulates gamma-band brainwave entrainment associated with high-focus mental states.
 - **Deep Space**:
   - Combines multiple detuned low-frequency sawtooth and sine oscillators (55 Hz, 110 Hz, 165 Hz) passed through a resonant low-pass filter to generate an ambient cosmic drone.
+- **Ocean Tides (`waves`)** *(Progression Unlock: Level 3)*:
+  - Blends looped Brownian and pink noise through a dual-stage resonant low-pass filter (280 Hz) modulated by a 0.09 Hz sine LFO, synthesizing an 11-second rolling shoreline wave swell.
+- **Zen Wind (`forest`)** *(Progression Unlock: Level 5)*:
+  - Filters pink noise through a resonant bandpass filter (540 Hz) and adds a subtle 880 Hz harmonic overtone with gentle vibrato, modulated by an organic 0.14 Hz canopy gust LFO.
 - **Tibetan Singing Bowl / Meditation Chime**:
   - Synthesized dynamically on session completion using decaying sinusoidal partials (harmonic frequencies: 528 Hz, 1056 Hz, 1584 Hz) with exponential gain decay ramps (`exponentialRampToValueAtTime`).
 
@@ -174,22 +180,30 @@ sequenceDiagram
 ### 5.1 Storage Priority & Offline Operation
 
 Do Not Disturb operates on a **Local-First** design pattern:
-- **Guest Users**: All session logs, blocklists, settings, and streak metrics are persisted in the browser's `localStorage` and `IndexedDB`. No network calls or accounts are required.
-- **Authenticated Users**: On login, local state is pushed to the server (`/api/sync`), merged with existing remote records, and updated bi-directionally. Subsequent mutations update both local cache and PostgreSQL.
+- **Guest Users**: All session logs (with goals, milestones, and notes), custom timer presets, blocklists, shortcuts and master toggles, UI visual themes, active focus anchors, granular deflection event logs, streak metrics, Flow XP, level tiers, and unlocked achievements are persisted in the browser's `localStorage` and `IndexedDB`. No network calls or accounts are required.
+- **Authenticated Users**: On signup (`/api/auth/register`) or login (`/api/auth/login`, `/api/auth/google`), the entire local guest state is automatically pushed, seeded into PostgreSQL, and merged bi-directionally via `/api/sync`. Subsequent mutations update both local cache and PostgreSQL.
 
 ### 5.2 Conflict Resolution
 
 When reconciling client and server state:
 - **Blocklist**: Union of unique normalized hostnames (`example.com`). If active flags differ, client takes precedence during an explicit local toggle.
-- **Settings & Presets**: Most recently updated timestamp (`updatedAt`) wins.
-- **Sessions & History**: Idempotent insert based on session ID (`cuid`). Deflection events are cumulatively appended.
+- **Settings & Presets**: Most recently updated timestamp (`updatedAt`) wins. Custom presets are matched by name and deduplicated.
+- **UI Preferences & Toggles**: Visualizer mode (`__visual_mode__`), shortcut master toggles (`__shortcuts_enabled__`), and active focus anchors (`__primary_anchor__`, `__session_intent__`) are persisted as metadata entries.
+- **Sessions & History**: Idempotent insert based on session ID (`cuid`) and start timestamp. Focus goals, intent milestones, and post-sprint retrospective notes are fully preserved.
+- **Deflection Events**: Granular deflection event logs are matched by timestamp and URL, mapped to the user's blocked website entities, and cumulatively appended.
+- **Gamification & Flow XP**: Progress-preserving reconciliation. The highest `level` and cumulative `totalXp` win, available `streakTokens` and intercepted `totalShieldsRepelled` take the maximum value, and unlocked achievements are reconciled as a set union across all authenticated devices.
 
 ---
 
 ## 6. Security & Authentication Architecture
 
-1. **Password Hashing**: Uses Node.js native `crypto.scryptSync` with unique 16-byte cryptographically secure salts. Hash format: `<salt>:<derivedKey>`.
-2. **Session Verification**: Stateless signed tokens combining base64url payload with HMAC-SHA256 signature (`<payload>.<signature>`) verified using timing-safe comparisons (`crypto.timingSafeEqual`).
+1. **Authentication Engine (Auth.js / NextAuth v5)**:
+   - Configured in `auth.ts` and exposed via App Router route handlers at `app/api/auth/[...nextauth]/route.ts`.
+   - Providers: Credentials (email & password with scrypt verification) and Google OAuth 2.0.
+   - Session Strategy: JWT session tokens with a 30-day (`maxAge: 30 * 24 * 60 * 60`) expiry window.
+   - Server Access: Accessed anywhere on the server using `auth()` or `getCurrentUser()`.
+   - Client Access: Wrapped in `<AuthProvider>` (`SessionProvider`), exposing `useSession()`, `signIn()`, and `signOut()`.
+2. **Password Hashing**: Uses Node.js native `crypto.scryptSync` with unique 16-byte cryptographically secure salts. Hash format: `<salt>:<derivedKey>`.
 3. **Cookie Attributes**:
    - `HttpOnly`: Inaccessible to client JavaScript, preventing XSS-based token theft.
    - `SameSite: Lax`: Protects against Cross-Site Request Forgery (CSRF).

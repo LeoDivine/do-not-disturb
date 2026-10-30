@@ -90,7 +90,7 @@ export function normalizeDomain(input: string, stripWww = true): NormalizedDomai
   }
 
   // Check against protected list
-  if (PROTECTED_DOMAINS.has(working)) {
+  if (isProtectedDomain(working)) {
     return {
       raw,
       hostname: working,
@@ -128,8 +128,9 @@ export function isProtectedDomain(hostname: string): boolean {
 export function createDnrFilter(domain: string, includeSubdomains: boolean): string {
   const clean = domain.toLowerCase().replace(/^www\./, "");
   if (includeSubdomains) {
-    // Matches http://youtube.com/, https://www.youtube.com/, etc.
+    // Matches http://youtube.com/, https://www.youtube.com/, https://sub.youtube.com/
     return `||${clean}^`;
   }
-  return `||${clean}^`;
+  // Matches exact hostname root path
+  return `|https://${clean}/|`;
 }

@@ -12,7 +12,7 @@ import React, {
 import { useTheme } from "./theme-context";
 import { extensionClient } from "../lib/blocking/extension-client";
 import { getStoredBlocklist } from "../lib/blocking/blocklist-store";
-import { recordCompletedSession } from "../lib/sessions/session-store";
+import { recordCompletedSession, toLocalDateString } from "../lib/sessions/session-store";
 import { getSoundSynth } from "../lib/sound/sound-synth";
 import {
   getStoredSettings,
@@ -20,8 +20,17 @@ import {
   UserSettingsPayload,
   DEFAULT_SETTINGS,
 } from "../lib/settings/settings-store";
+import {
+  HolidayId,
+  HOLIDAY_THEMES,
+  getNearestHoliday,
+  isThemeUnlocked,
+} from "../components/gamification/holiday-themes";
+import { getStoredGamification } from "../lib/gamification/gamification-store";
 
 export type SessionMode = "focus" | "shortBreak" | "longBreak";
+export type VisualMode = "timer" | "garden" | "auto" | HolidayId;
+export type { HolidayId };
 
 export interface ModeColorConfig {
   mode: SessionMode;
@@ -131,11 +140,16 @@ export const MODE_DEFAULT_DURATIONS: Record<SessionMode, number> = getModeDurati
 interface TimerContextType {
   mode: SessionMode;
   setMode: (mode: SessionMode) => void;
+  visualMode: VisualMode;
+  resolvedVisualMode: "timer" | "garden" | HolidayId;
+  setVisualMode: (mode: VisualMode | ((prev: VisualMode) => VisualMode)) => void;
+  toggleVisualMode: () => void;
   secondsLeft: number;
   totalSeconds: number;
   isRunning: boolean;
   cycle: number;
   totalCycles: number;
+  resetCycle: () => void;
   startTimer: () => void;
   pauseTimer: () => void;
   toggleTimer: () => void;
@@ -170,6 +184,7 @@ interface PersistedTimerState {
   cycle: number;
   sessionId: string | null;
   updatedAt?: number;
+  cycleDate?: string;
 }
 
 function getInitialTimerState(): PersistedTimerState | null {
@@ -213,6 +228,74 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     modeRef.current = mode;
   }, [mode]);
 
+  // Visualizer display mode: Circular Arc, Blooming Zen Garden, or Seasonal Holiday Themes
+  const isValidVisualMode = useCallback((val: string | null): val is VisualMode => {
+    return val === "timer" || val === "garden" || val === "auto" || (Boolean(val) && val! in HOLIDAY_THEMES);
+  }, []);
+
+  const [visualMode, setVisualModeState] = useState<VisualMode>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("dnd_visual_mode");
+      if (saved === "timer" || saved === "garden" || saved === "auto" || (saved && saved in HOLIDAY_THEMES)) {
+        return saved as VisualMode;
+      }
+    }
+    return "timer";
+  });
+
+  const resolvedVisualMode = useMemo<"timer" | "garden" | HolidayId>(() => {
+    const rawMode = visualMode === "auto" ? getNearestHoliday().id : visualMode;
+    // Check if the theme is unlocked for the user's current level
+    if (typeof window !== "undefined") {
+      const userLevel = getStoredGamification().level;
+      if (!isThemeUnlocked(rawMode, userLevel)) {
+        return "timer";
+      }
+    }
+    return rawMode;
+  }, [visualMode]);
+
+  const setVisualMode = useCallback((val: VisualMode | ((prev: VisualMode) => VisualMode)) => {
+    setVisualModeState((prev) => {
+      const next = typeof val === "function" ? val(prev) : val;
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("dnd_visual_mode", next);
+          window.dispatchEvent(new CustomEvent("dnd-visual-mode-updated", { detail: next }));
+        } catch {}
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleVisualMode = useCallback(() => {
+    setVisualMode((prev) => {
+      if (prev === "timer") return "garden";
+      if (prev === "garden") return "auto";
+      return "timer";
+    });
+  }, [setVisualMode]);
+
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "dnd_visual_mode" && isValidVisualMode(e.newValue)) {
+        setVisualModeState(e.newValue);
+      }
+    };
+    const handleCustom = (e: Event) => {
+      const ce = e as CustomEvent;
+      if (isValidVisualMode(ce.detail)) {
+        setVisualModeState(ce.detail);
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("dnd-visual-mode-updated", handleCustom);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("dnd-visual-mode-updated", handleCustom);
+    };
+  }, [isValidVisualMode]);
+
   const [secondsLeft, setSecondsLeft] = useState<number>(defaultDuration);
   const secondsLeftRef = useRef<number>(secondsLeft);
   useEffect(() => {
@@ -220,6 +303,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   }, [secondsLeft]);
 
   const [totalSeconds, setTotalSeconds] = useState<number>(defaultDuration);
+  const totalSecondsRef = useRef<number>(totalSeconds);
+  useEffect(() => {
+    totalSecondsRef.current = totalSeconds;
+  }, [totalSeconds]);
 
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const isRunningRef = useRef<boolean>(isRunning);
@@ -232,6 +319,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     cycleRef.current = cycle;
   }, [cycle]);
+  const cycleDateRef = useRef<string>("");
+  useEffect(() => {
+    if (!cycleDateRef.current) {
+      cycleDateRef.current = toLocalDateString(new Date());
+    }
+  }, []);
 
   const endsAtRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -256,12 +349,18 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const persistAndBroadcast = useCallback((newState: PersistedTimerState) => {
     if (typeof window === "undefined") return;
     try {
-      localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify({ ...newState, updatedAt: Date.now() }));
+      const todayStr = toLocalDateString(new Date());
+      const stateWithDate: PersistedTimerState = {
+        cycleDate: newState.cycleDate || cycleDateRef.current || todayStr,
+        ...newState,
+        updatedAt: Date.now(),
+      };
+      localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(stateWithDate));
       localStorage.setItem("dnd-session-mode", newState.mode);
 
       if (typeof BroadcastChannel !== "undefined") {
         const bc = new BroadcastChannel("dnd-timer-channel");
-        bc.postMessage({ type: "TIMER_SYNC", state: newState });
+        bc.postMessage({ type: "TIMER_SYNC", state: stateWithDate });
         bc.close();
       }
     } catch {}
@@ -345,6 +444,90 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // Helper to verify if the active cycle belongs to an earlier calendar day and reset if needed
+  const checkDailyCycleReset = useCallback(() => {
+    const todayStr = toLocalDateString(new Date());
+    if (cycleDateRef.current && cycleDateRef.current !== todayStr) {
+      cycleDateRef.current = todayStr;
+      setCycle(1);
+      cycleRef.current = 1;
+
+      persistAndBroadcast({
+        mode: modeRef.current,
+        secondsLeft: secondsLeftRef.current,
+        totalSeconds: totalSecondsRef.current,
+        isRunning: isRunningRef.current,
+        endsAt: endsAtRef.current,
+        cycle: 1,
+        cycleDate: todayStr,
+        sessionId: sessionIdRef.current,
+      });
+
+      dispatchExtensionSync(
+        isRunningRef.current,
+        modeRef.current,
+        endsAtRef.current,
+        secondsLeftRef.current
+      );
+      return true;
+    }
+    if (!cycleDateRef.current) {
+      cycleDateRef.current = todayStr;
+    }
+    return false;
+  }, [persistAndBroadcast, dispatchExtensionSync]);
+
+  const resetCycle = useCallback(() => {
+    const todayStr = toLocalDateString(new Date());
+    cycleDateRef.current = todayStr;
+    setCycle(1);
+    cycleRef.current = 1;
+
+    persistAndBroadcast({
+      mode: modeRef.current,
+      secondsLeft: secondsLeftRef.current,
+      totalSeconds: totalSecondsRef.current,
+      isRunning: isRunningRef.current,
+      endsAt: endsAtRef.current,
+      cycle: 1,
+      cycleDate: todayStr,
+      sessionId: sessionIdRef.current,
+    });
+
+    dispatchExtensionSync(
+      isRunningRef.current,
+      modeRef.current,
+      endsAtRef.current,
+      secondsLeftRef.current
+    );
+  }, [persistAndBroadcast, dispatchExtensionSync]);
+
+  // Daily cycle reset monitor: checks date rollover periodically, on tab visibility change, and on window focus
+  useEffect(() => {
+    const handleCheck = () => {
+      checkDailyCycleReset();
+    };
+
+    // Periodic check every 5 seconds
+    const interval = setInterval(handleCheck, 5000);
+
+    // Immediate check on visibility change or window focus
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        handleCheck();
+      }
+    };
+
+    window.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", handleCheck);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", handleCheck);
+    };
+  }, [checkDailyCycleReset]);
+
   // Cross-platform & cross-tab settings subscription
   useEffect(() => {
     const unsubscribe = subscribeToSettings((newSettings) => {
@@ -392,6 +575,18 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       const currentDurations = durationsRef.current || initialDurations;
       const targetMode = saved.mode || "focus";
       const fallbackDuration = currentDurations[targetMode] || 25 * 60;
+      const todayStr = toLocalDateString(new Date());
+
+      // Check if saved state cycle is from a previous calendar day
+      const isPreviousDay = saved.cycleDate
+        ? saved.cycleDate !== todayStr
+        : saved.updatedAt
+        ? toLocalDateString(new Date(saved.updatedAt)) !== todayStr
+        : false;
+
+      // Always reset to cycle 1 on a new day
+      const effectiveCycle = isPreviousDay ? 1 : (saved.cycle || 1);
+      cycleDateRef.current = todayStr;
 
       if (saved.isRunning && saved.endsAt && saved.endsAt > now) {
         const remaining = Math.max(0, Math.ceil((saved.endsAt - now) / 1000));
@@ -401,7 +596,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setIsRunning(true);
         endsAtRef.current = saved.endsAt;
         sessionIdRef.current = saved.sessionId || `sess_${now}`;
-        setCycle(saved.cycle || 1);
+        setCycle(effectiveCycle);
+        cycleRef.current = effectiveCycle;
         applyModeAttribute(targetMode);
       } else if (saved.isRunning && saved.endsAt && saved.endsAt <= now) {
         // Session ended while the tab was hidden, suspended, or closed: record it so it's not lost!
@@ -413,6 +609,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
               actualSeconds: saved.totalSeconds || fallbackDuration,
               goal: typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || undefined : undefined,
               intent: typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || undefined : undefined,
+              cycle: saved.cycle || 1,
+              totalCycles: totalCyclesRef.current || 4,
             });
           } catch (e) {
             console.error("Failed to record background completed session", e);
@@ -422,7 +620,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         // Advance to next mode
         const nextMode: SessionMode = targetMode === "focus" ? "shortBreak" : "focus";
         const nextDuration = currentDurations[nextMode] || 5 * 60;
-        const nextCycle = targetMode === "focus" ? (saved.cycle || 1) + 1 : (saved.cycle || 1);
+
+        let nextCycle = 1;
+        if (!isPreviousDay) {
+          const maxCadence = totalCyclesRef.current || 4;
+          const candidate = targetMode === "focus" ? (saved.cycle || 1) + 1 : (saved.cycle || 1);
+          nextCycle = candidate > maxCadence ? 1 : candidate;
+        }
 
         setModeState(nextMode);
         setTotalSeconds(nextDuration);
@@ -431,6 +635,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         endsAtRef.current = null;
         sessionIdRef.current = null;
         setCycle(nextCycle);
+        cycleRef.current = nextCycle;
         applyModeAttribute(nextMode);
 
         const newState: PersistedTimerState = {
@@ -440,6 +645,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           isRunning: false,
           endsAt: null,
           cycle: nextCycle,
+          cycleDate: todayStr,
           sessionId: null,
         };
         persistAndBroadcast(newState);
@@ -451,8 +657,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setIsRunning(false);
         endsAtRef.current = null;
         sessionIdRef.current = saved.sessionId;
-        setCycle(saved.cycle || 1);
+        setCycle(effectiveCycle);
+        cycleRef.current = effectiveCycle;
         applyModeAttribute(targetMode);
+
+        if (isPreviousDay) {
+          persistAndBroadcast({
+            mode: targetMode,
+            secondsLeft: saved.secondsLeft ?? fallbackDuration,
+            totalSeconds: saved.totalSeconds || fallbackDuration,
+            isRunning: false,
+            endsAt: null,
+            cycle: 1,
+            cycleDate: todayStr,
+            sessionId: saved.sessionId,
+          });
+        }
       }
     };
 
@@ -464,6 +684,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         const focusDuration = initialDurations.focus;
         setSecondsLeft(focusDuration);
         setTotalSeconds(focusDuration);
+        setCycle(1);
+        cycleRef.current = 1;
+        cycleDateRef.current = toLocalDateString(new Date());
         applyModeAttribute("focus");
       }
     } catch {
@@ -498,6 +721,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
   const setMode = useCallback(
     (newMode: SessionMode) => {
+      checkDailyCycleReset();
       setModeState(newMode);
       setIsRunning(false);
       endsAtRef.current = null;
@@ -506,19 +730,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       setSecondsLeft(duration);
       applyModeAttribute(newMode);
 
+      const currentCycle = cycleRef.current;
+      const todayStr = toLocalDateString(new Date());
       const newState: PersistedTimerState = {
         mode: newMode,
         secondsLeft: duration,
         totalSeconds: duration,
         isRunning: false,
         endsAt: null,
-        cycle,
+        cycle: currentCycle,
+        cycleDate: todayStr,
         sessionId: sessionIdRef.current,
       };
       persistAndBroadcast(newState);
       dispatchExtensionSync(false, newMode, null, duration);
     },
-    [cycle, persistAndBroadcast, dispatchExtensionSync]
+    [checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync]
   );
 
   // Accurate countdown timer loop with timestamp reconciliation & automation support
@@ -536,6 +763,14 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         // Clear immediately to prevent concurrent interval re-triggers
         endsAtRef.current = null;
 
+        // Check if date changed during session
+        const todayStr = toLocalDateString(new Date());
+        let isNewDay = false;
+        if (cycleDateRef.current && cycleDateRef.current !== todayStr) {
+          cycleDateRef.current = todayStr;
+          isNewDay = true;
+        }
+
         // Save real session history record for completed focus sprints
         if (mode === "focus") {
           try {
@@ -545,6 +780,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
               actualSeconds: totalSeconds,
               goal: typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || undefined : undefined,
               intent: typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || undefined : undefined,
+              cycle: cycleRef.current,
+              totalCycles: totalCyclesRef.current,
             });
           } catch (e) {
             console.error("Failed to record completed session", e);
@@ -562,25 +799,32 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
         // Determine next mode and whether to auto-start
         let nextMode: SessionMode;
-        let nextCycle = cycle;
+        let nextCycle = isNewDay ? 1 : cycleRef.current;
         let shouldAutoStart = false;
 
         if (mode === "focus") {
-          if (cycle >= totalCyclesRef.current) {
+          if (isNewDay) {
+            nextMode = "shortBreak";
+            nextCycle = 1;
+          } else if (cycleRef.current >= totalCyclesRef.current) {
             nextMode = "longBreak";
             nextCycle = 1;
           } else {
             nextMode = "shortBreak";
-            nextCycle = cycle + 1;
+            nextCycle = cycleRef.current + 1;
           }
           shouldAutoStart = Boolean(settingsRef.current.autoStartBreaks);
         } else {
           nextMode = "focus";
+          if (isNewDay) {
+            nextCycle = 1;
+          }
           shouldAutoStart = Boolean(settingsRef.current.autoStartFocus);
         }
 
         const nextDuration = durationsRef.current[nextMode];
         setCycle(nextCycle);
+        cycleRef.current = nextCycle;
         setModeState(nextMode);
         applyModeAttribute(nextMode);
         setTotalSeconds(nextDuration);
@@ -600,6 +844,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             isRunning: true,
             endsAt: newEndsAt,
             cycle: nextCycle,
+            cycleDate: todayStr,
             sessionId: newSessionId,
           };
           persistAndBroadcast(newState);
@@ -617,6 +862,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             isRunning: false,
             endsAt: null,
             cycle: nextCycle,
+            cycleDate: todayStr,
             sessionId: null,
           };
           persistAndBroadcast(newState);
@@ -631,9 +877,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 500);
 
     return () => clearInterval(interval);
-  }, [isRunning, mode, cycle, totalSeconds, persistAndBroadcast, dispatchExtensionSync]);
+  }, [isRunning, mode, totalSeconds, persistAndBroadcast, dispatchExtensionSync]);
 
   const startTimer = useCallback(() => {
+    checkDailyCycleReset();
+    const currentCycle = cycleRef.current;
     const newEndsAt = Date.now() + secondsLeftRef.current * 1000;
     if (!sessionIdRef.current) {
       sessionIdRef.current = `sess_${Date.now()}`;
@@ -647,14 +895,16 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       totalSeconds,
       isRunning: true,
       endsAt: newEndsAt,
-      cycle,
+      cycle: currentCycle,
       sessionId: sessionIdRef.current,
     };
     persistAndBroadcast(newState);
     dispatchExtensionSync(true, mode, newEndsAt, secondsLeftRef.current);
-  }, [mode, totalSeconds, cycle, persistAndBroadcast, dispatchExtensionSync]);
+  }, [mode, totalSeconds, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync]);
 
   const pauseTimer = useCallback(() => {
+    checkDailyCycleReset();
+    const currentCycle = cycleRef.current;
     let remainingSecs = secondsLeftRef.current;
     if (endsAtRef.current) {
       const remainingMs = Math.max(0, endsAtRef.current - Date.now());
@@ -670,12 +920,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       totalSeconds,
       isRunning: false,
       endsAt: null,
-      cycle,
+      cycle: currentCycle,
       sessionId: sessionIdRef.current,
     };
     persistAndBroadcast(newState);
     dispatchExtensionSync(false, mode, null, remainingSecs);
-  }, [mode, totalSeconds, cycle, persistAndBroadcast, dispatchExtensionSync]);
+  }, [mode, totalSeconds, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync]);
 
   const toggleTimer = useCallback(() => {
     if (isRunning) {
@@ -686,6 +936,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   }, [isRunning, pauseTimer, startTimer]);
 
   const resetTimer = useCallback(() => {
+    checkDailyCycleReset();
+    const currentCycle = cycleRef.current;
     const elapsed = totalSeconds - secondsLeftRef.current;
     if (mode === "focus" && elapsed >= 60 && (isRunning || sessionIdRef.current)) {
       try {
@@ -696,6 +948,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           endedEarly: true,
           goal: typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || undefined : undefined,
           intent: typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || undefined : undefined,
+          cycle: currentCycle,
+          totalCycles: totalCyclesRef.current,
         });
       } catch {}
     }
@@ -713,7 +967,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       totalSeconds: duration,
       isRunning: false,
       endsAt: null,
-      cycle,
+      cycle: currentCycle,
       sessionId: null,
     });
 
@@ -721,9 +975,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       extensionClient.stopSession();
       dispatchExtensionSync(false, mode, null, duration);
     }
-  }, [mode, totalSeconds, isRunning, cycle, persistAndBroadcast, dispatchExtensionSync]);
+  }, [mode, totalSeconds, isRunning, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync]);
 
   const skipTimer = useCallback(() => {
+    checkDailyCycleReset();
+    const currentCycle = cycleRef.current;
     const elapsed = totalSeconds - secondsLeftRef.current;
     if (mode === "focus" && elapsed >= 60 && (isRunning || sessionIdRef.current)) {
       try {
@@ -734,6 +990,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           endedEarly: true,
           goal: typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || undefined : undefined,
           intent: typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || undefined : undefined,
+          cycle: currentCycle,
+          totalCycles: totalCyclesRef.current,
         });
       } catch {}
     }
@@ -751,7 +1009,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       totalSeconds: nextDuration,
       isRunning: false,
       endsAt: null,
-      cycle,
+      cycle: currentCycle,
       sessionId: null,
     });
 
@@ -763,7 +1021,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     setMode(nextMode);
     setSecondsLeft(nextDuration);
     setTotalSeconds(nextDuration);
-  }, [mode, totalSeconds, isRunning, cycle, setMode, persistAndBroadcast, dispatchExtensionSync]);
+  }, [mode, totalSeconds, isRunning, checkDailyCycleReset, setMode, persistAndBroadcast, dispatchExtensionSync]);
 
   const formatTime = useCallback((secs: number = secondsLeft) => {
     const m = Math.floor(secs / 60);
@@ -799,11 +1057,16 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     () => ({
       mode,
       setMode,
+      visualMode,
+      resolvedVisualMode,
+      setVisualMode,
+      toggleVisualMode,
       secondsLeft,
       totalSeconds,
       isRunning,
       cycle,
       totalCycles,
+      resetCycle,
       startTimer,
       pauseTimer,
       toggleTimer,
@@ -827,11 +1090,16 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     [
       mode,
       setMode,
+      visualMode,
+      resolvedVisualMode,
+      setVisualMode,
+      toggleVisualMode,
       secondsLeft,
       totalSeconds,
       isRunning,
       cycle,
       totalCycles,
+      resetCycle,
       startTimer,
       pauseTimer,
       toggleTimer,

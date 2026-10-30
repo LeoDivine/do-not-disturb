@@ -237,7 +237,7 @@ export default function TipsPage() {
   };
 
   return (
-    <main className="max-w-[1080px] w-full mx-auto px-6 py-8 md:py-12 flex flex-col gap-8">
+    <main className="max-w-[1080px] w-full mx-auto px-4 py-6 sm:px-6 sm:py-8 md:py-12 flex flex-col gap-6 sm:gap-8">
       {/* 1. Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b border-[#e2e8f0] dark:border-[#1d2634]">
         <div className="flex flex-col gap-2">
@@ -247,7 +247,7 @@ export default function TipsPage() {
           >
             <span>← Back to Blocklist</span>
           </Link>
-          <h1 className={`text-2xl md:text-3xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+          <h1 className={`text-xl sm:text-2xl md:text-3xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
             Friendly Tips
           </h1>
           <p className={`text-xs md:text-sm max-w-xl leading-relaxed ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
@@ -270,7 +270,7 @@ export default function TipsPage() {
       {/* 2. Minimalist Filter & Search Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         {/* Simple text filter tabs */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 no-scrollbar">
           <button
             onClick={() => setActiveFilter("all")}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
@@ -393,7 +393,7 @@ export default function TipsPage() {
           {filteredTips.map((tip) => (
             <article
               key={tip.id}
-              className={`p-5 rounded-2xl border flex flex-col justify-between gap-4 transition-colors ${
+              className={`p-5 rounded-2xl border flex flex-col justify-between gap-4 transition-all duration-200 micro-card hover:shadow-md ${
                 isDark
                   ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]"
                   : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-xs"

@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useSync } from "../context/SyncContext";
+import { useSync } from "../context/sync-context";
 import { useTheme } from "../context/theme-context";
 import { useTimer } from "../context/timer-context";
+import { useCloseOnEscape } from "../lib/overlays/use-close-on-escape";
 
 export default function SyncModal() {
   const {
@@ -17,7 +18,6 @@ export default function SyncModal() {
     login,
     loginWithGoogle,
     register,
-    logout,
     exportBackup,
     importBackup,
   } = useSync();
@@ -36,16 +36,8 @@ export default function SyncModal() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [backupNotice, setBackupNotice] = useState<string | null>(null);
 
-  // Close on Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isModalOpen) {
-        closeSyncModal();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isModalOpen, closeSyncModal]);
+  // Close on Escape key (global close-all-overlays event)
+  useCloseOnEscape(isModalOpen, closeSyncModal);
 
   // Reset form when opening or toggling modes
   useEffect(() => {
@@ -86,7 +78,13 @@ export default function SyncModal() {
     try {
       const res = await loginWithGoogle();
       if (!res.success) {
-        setErrorMessage(res.error || "Unable to sign in with Google.");
+        if (
+          res.error &&
+          !res.error.toLowerCase().includes("canceled") &&
+          !res.error.toLowerCase().includes("cancelled")
+        ) {
+          setErrorMessage(res.error);
+        }
       } else {
         closeSyncModal();
       }
@@ -116,14 +114,14 @@ export default function SyncModal() {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[420px] rounded-3xl border p-7 shadow-2xl relative transition-all duration-200 bg-white dark:bg-[#0e141e] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] animate-in zoom-in-95"
+        className="w-full max-w-[420px] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:rounded-3xl border p-5 sm:p-7 shadow-2xl relative transition-all duration-200 bg-white dark:bg-[#0e141e] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] animate-pop-in no-scrollbar"
         role="dialog"
         aria-modal="true"
       >
         {/* Dismiss Button */}
         <button
           onClick={closeSyncModal}
-          className="absolute top-5 right-5 p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1a2332] transition-colors"
+          className="absolute top-5 right-5 p-2 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1a2332] transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer"
           aria-label="Close"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -137,33 +135,25 @@ export default function SyncModal() {
         {/* ================================================================= */}
         {user ? (
           <div className="flex flex-col items-center text-center pt-2">
-            {/* Friendly Avatar Icon */}
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center border mb-4 shadow-xs transition-colors"
-              style={{
-                backgroundColor: isDark ? colors.containerDark : colors.container,
-                borderColor: activeBorder,
-                color: activeColor,
-              }}
-            >
-              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
-            </div>
-
             <h3 className="text-xl font-bold tracking-tight">Everything is in Sync</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs">
-              Your blocklist, custom shortcuts, and timer preferences are synced with your account.
+              Your blocklist, shortcuts, streaks, goals, Flow XP, and level are in sync with your account.
             </p>
 
-            {/* Account Card */}
+            {/* Sync Status Card */}
             <div className="w-full mt-6 p-4 rounded-2xl border bg-slate-50/70 dark:bg-[#131b27] border-slate-200/80 dark:border-[#1e2a3b] text-left flex items-center justify-between">
               <div className="min-w-0 pr-3">
                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
-                  {user.name || user.email}
+                  Cloud sync
                 </div>
                 <div className="text-[11px] text-slate-400 truncate">
-                  {user.email}
+                  {syncState === "syncing"
+                    ? "Syncing changes..."
+                    : syncState === "error"
+                    ? "Last sync failed"
+                    : syncState === "offline"
+                    ? "You're offline"
+                    : "Up to date across your devices"}
                 </div>
               </div>
 
@@ -179,13 +169,14 @@ export default function SyncModal() {
                   className="w-1.5 h-1.5 rounded-full animate-pulse"
                   style={{ backgroundColor: activeColor }}
                 />
-                <span>Synced</span>
+                <span>{syncState === "syncing" ? "Syncing" : syncState === "error" || syncState === "offline" ? "Paused" : "Synced"}</span>
               </div>
             </div>
 
             <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-2">
               Last synced: {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
             </div>
+
 
             {/* Actions */}
             <div className="w-full flex flex-col gap-2.5 mt-6">
@@ -210,12 +201,9 @@ export default function SyncModal() {
                 {syncState === "syncing" ? "Checking for updates..." : "Sync Now"}
               </button>
 
-              <button
-                onClick={logout}
-                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 py-1.5 transition-colors cursor-pointer"
-              >
-                Sign out of this device
-              </button>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 py-1.5">
+                Signed in as {user.email || user.name}. Use your avatar menu to manage your account.
+              </p>
             </div>
           </div>
         ) : (
@@ -230,8 +218,8 @@ export default function SyncModal() {
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                 {isSignUp
-                  ? "Create an account to bring your blocklist and shortcuts to every computer you work on."
-                  : "Sign in to keep your shortcuts and focus shields up to date."}
+                  ? "Create an account to bring your blocklist, custom shortcuts, and focus level to every computer you work on."
+                  : "Sign in to keep your shortcuts, focus shields, and Flow XP up to date."}
               </p>
             </div>
 

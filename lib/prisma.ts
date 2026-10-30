@@ -11,6 +11,11 @@ const globalForPrisma = globalThis as unknown as {
   pool?: Pool;
 };
 
+// If a previously cached PrismaClient instance lacks userGamification, clear it so the latest generated client is used
+if (globalForPrisma.prisma && !("userGamification" in globalForPrisma.prisma)) {
+  delete globalForPrisma.prisma;
+}
+
 const connectionString = process.env.DATABASE_URL;
 
 const pool =

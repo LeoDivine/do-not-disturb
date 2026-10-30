@@ -58,6 +58,8 @@ model User {
   shortcuts       UserShortcut[]
   presets         TimerPreset[]
   streak          UserStreak?
+  gamification    UserGamification?
+  achievements    UserAchievement[]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -296,3 +298,43 @@ model UserStreak {
 
   @@map("user_streaks")
 }
+
+// =============================================================================
+// GAMIFICATION, XP & ACHIEVEMENTS
+// =============================================================================
+
+model UserGamification {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  level                Int      @default(1)
+  currentXp            Int      @default(0)
+  nextLevelXp          Int      @default(300)
+  totalXp              Int      @default(0)
+  streakTokens         Int      @default(2) // Compassionate rest / freeze day tokens
+  totalShieldsRepelled Int      @default(0) // Lifetime deflections blocked
+  lastActiveDate       String?
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("user_gamification")
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  achievementId String // e.g. "first_spark", "digital_fortress"
+  unlockedAt    DateTime @default(now())
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
+}
+

@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTheme } from "../../context/theme-context";
 import { useTimer } from "../../context/timer-context";
-import { useSync } from "../../context/SyncContext";
+import { useSync } from "../../context/sync-context";
+import { useCloseOnEscape } from "../../lib/overlays/use-close-on-escape";
 import {
   exportDataAsJSON,
   importDataFromJSON,
@@ -45,6 +46,7 @@ export default function PrivacyPage() {
   // User feedback & modals
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
+  useCloseOnEscape(showResetModal, () => setShowResetModal(false));
   const [selectedReset, setSelectedReset] = useState<ResetCategory>("all");
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [isImporting, setIsImporting] = useState<boolean>(false);
@@ -179,17 +181,22 @@ export default function PrivacyPage() {
     {
       question: "Do I need to sign up to use Do Not Disturb?",
       answer:
-        "No. You never have to create an account, provide an email address, or create a password. You can use every single timer, ambient sound, and blocking feature completely as a guest.",
+        "No. You never have to create an account, provide an email address, or create a password. You can use every single timer, ambient sound, statistic, achievement, and blocking feature completely as a guest.",
     },
     {
       question: "Can anyone see the websites I visit or block?",
       answer:
-        "Never. The companion browser extension works natively inside your browser. It pauses distracting websites without ever recording your browsing history or sending visited links to any server.",
+        "No. The companion browser extension blocks sites using your browser's built-in rule engine, so it never reads or records your general browsing history. The only thing noted is when you try to open a site that is on your blocklist during a focus session (the site name and time), which powers your deflection stats. That log stays on your device unless you turn on Cloud Sync.",
     },
     {
       question: "What is saved if I choose to use Cloud Sync?",
       answer:
-        "Cloud Sync is completely optional. If you choose to log in, we only sync your timer durations, your blocklist, and your streak count so you can focus across multiple laptops or desktops. We never sync your browsing history or work notes.",
+        "Cloud Sync is completely optional. If you sign in (with email and password, or with Google), we store your email, display name, and profile picture, plus the data needed to restore your setup on another device: timer settings and custom presets, visualizer and sound choices, keyboard shortcuts and toggles, your blocklist, focus session history (including goals, intent milestones, and post-sprint notes), granular blocked-site deflection logs, streaks, Flow XP, and unlocked achievements. Passwords are stored only as a salted scrypt hash. We never sync your general browsing history.",
+    },
+    {
+      question: "Does Do Not Disturb use cookies?",
+      answer:
+        "Only one, and only if you sign in to Cloud Sync: a secure, HTTP-only session cookie that keeps you logged in for up to 30 days. There are no analytics, advertising, or third-party tracking cookies. Guests get no cookies at all — everything is kept in your browser's local storage.",
     },
     {
       question: "Does the soothing sound player stream audio over the internet?",
@@ -204,12 +211,12 @@ export default function PrivacyPage() {
     {
       question: "How do I completely erase my data?",
       answer:
-        "Click 'Reset data' at the top of this page anytime. You can choose to clear your focus streaks, reset your blocklist, or erase every piece of saved information with a single click.",
+        "Click 'Reset data' on this page anytime. You can clear your focus history, reset your blocklist, or erase everything saved in this browser with a single click. Resetting only affects this device — if you use Cloud Sync, the copy stored in your cloud account is not removed and may be restored the next time you sync, so sign out first if you want this device to stay clean.",
     },
   ];
 
   return (
-    <main className="max-w-[1360px] w-full mx-auto p-6 md:p-8 flex flex-col gap-8 text-[#0f172a] dark:text-[#f8fafc]">
+    <main className="max-w-[1360px] w-full mx-auto px-4 py-5 sm:p-6 md:p-8 flex flex-col gap-6 sm:gap-8 text-[#0f172a] dark:text-[#f8fafc]">
       {/* Hidden File Picker */}
       <input
         type="file"
@@ -298,7 +305,7 @@ export default function PrivacyPage() {
             Zero Tracking or Ads
           </h2>
           <p className="text-xs text-[#64748b] dark:text-[#94a3b8] leading-relaxed">
-            No analytics scripts, no advertising beacons, and no tracking cookies. We never monitor or monetize your habits.
+            No analytics scripts, no advertising beacons, and no tracking cookies. The only cookie is a sign-in cookie if you opt into Cloud Sync. We never monitor or monetize your habits.
           </p>
         </div>
       </div>
@@ -323,11 +330,19 @@ export default function PrivacyPage() {
             </li>
             <li className="flex items-start gap-2.5">
               <span className="text-emerald-500 font-bold shrink-0">&bull;</span>
-              <span><strong>Your focus history:</strong> Completed sprints and streaks ({sessionCount} recorded).</span>
+              <span><strong>Your focus history:</strong> Completed sprints, focus goals, and streaks ({sessionCount} recorded).</span>
             </li>
             <li className="flex items-start gap-2.5">
               <span className="text-emerald-500 font-bold shrink-0">&bull;</span>
-              <span><strong>Sound &amp; theme:</strong> Your ambient sound volume and theme choices.</span>
+              <span><strong>Blocked attempts:</strong> The name and time of blocked sites you tried to open during focus, used for your statistics.</span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <span className="text-emerald-500 font-bold shrink-0">&bull;</span>
+              <span><strong>Progress:</strong> Your Flow XP, level, and unlocked achievements.</span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <span className="text-emerald-500 font-bold shrink-0">&bull;</span>
+              <span><strong>Preferences:</strong> Timer presets, keyboard shortcuts, ambient sound volume, and theme choices.</span>
             </li>
           </ul>
         </div>
@@ -337,16 +352,16 @@ export default function PrivacyPage() {
             What we never see or touch
           </h2>
           <p className="text-xs text-[#64748b] dark:text-[#94a3b8] leading-relaxed">
-            Because Do Not Disturb runs entirely on your device, we cannot see:
+            Whether or not you use Cloud Sync, we never collect:
           </p>
           <ul className="flex flex-col gap-2.5 text-xs text-[#334155] dark:text-[#cbd5e1]">
             <li className="flex items-start gap-2.5">
               <span className="text-rose-500 font-bold shrink-0">&bull;</span>
-              <span><strong>Your browsing history:</strong> We never log or transmit the websites you visit.</span>
+              <span><strong>Your browsing history:</strong> The extension only matches sites against your blocklist. Pages you visit that aren&apos;t blocked are never logged or transmitted.</span>
             </li>
             <li className="flex items-start gap-2.5">
               <span className="text-rose-500 font-bold shrink-0">&bull;</span>
-              <span><strong>Your focus notes:</strong> Any goals or tasks you write stay private on your screen.</span>
+              <span><strong>Page contents:</strong> The extension never reads what is on the websites you open.</span>
             </li>
             <li className="flex items-start gap-2.5">
               <span className="text-rose-500 font-bold shrink-0">&bull;</span>
@@ -359,6 +374,41 @@ export default function PrivacyPage() {
           </ul>
         </div>
       </div>
+
+      {/* 3b. Optional Cloud Sync disclosure */}
+      <section id="cloud-sync" className="p-6 md:p-8 rounded-2xl border bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] flex flex-col gap-5 scroll-mt-20">
+        <div>
+          <h2 className="text-lg font-bold text-[#0f172a] dark:text-white">
+            If You Turn On Cloud Sync
+          </h2>
+          <p className="text-xs text-[#64748b] dark:text-[#94a3b8] mt-1">
+            Sync is off by default. When you sign in, here is exactly what is stored on our servers so your setup can follow you.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-1 text-xs">
+          <div className="flex flex-col gap-1.5">
+            <span className="font-semibold text-[#0f172a] dark:text-white">Your Account</span>
+            <p className="text-[#64748b] dark:text-[#94a3b8] leading-relaxed">
+              Email, display name, and profile picture (from Google if you use Google sign-in). Passwords are never stored in plain text, only as a salted scrypt hash.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="font-semibold text-[#0f172a] dark:text-white">Your Synced Data</span>
+            <p className="text-[#64748b] dark:text-[#94a3b8] leading-relaxed">
+              Timer settings and custom presets, shortcuts and shortcut toggles, visualizer themes, sound and appearance choices, blocklist, focus sessions with their goals and notes, granular deflection event history, streaks, Flow XP, and achievements.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="font-semibold text-[#0f172a] dark:text-white">Your Session</span>
+            <p className="text-[#64748b] dark:text-[#94a3b8] leading-relaxed">
+              A single secure, HTTP-only cookie keeps you signed in for up to 30 days. Signing out removes it. It is never used for tracking or shared with anyone.
+            </p>
+          </div>
+        </div>
+      </section>
 
       {/* 4. Complete Offline Freedom */}
       <section id="local-only" className="p-6 md:p-8 rounded-2xl border bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] flex flex-col gap-5 scroll-mt-20">
@@ -513,6 +563,11 @@ export default function PrivacyPage() {
               <p className="text-xs text-[#64748b] dark:text-[#94a3b8] mt-1">
                 Choose what you would like to reset on this browser:
               </p>
+              {user && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 leading-relaxed">
+                  You are signed in to Cloud Sync. Resetting only clears this browser; your cloud copy stays and may be restored on the next sync.
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-2.5">

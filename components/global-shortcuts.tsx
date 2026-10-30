@@ -8,8 +8,10 @@ import {
   getStoredShortcuts,
   doesKeyEventMatchShortcut,
   SHORTCUTS_UPDATED_EVENT,
+  DEFAULT_SHORTCUTS,
   ShortcutDef,
 } from "../lib/shortcuts/shortcuts-store";
+import { closeAllOverlays } from "../lib/overlays/use-close-on-escape";
 
 type ToastIconType =
   | "play"
@@ -118,7 +120,7 @@ export default function GlobalShortcuts() {
 
   const [toast, setToast] = useState<ToastInfo | null>(null);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [shortcuts, setShortcuts] = useState<ShortcutDef[]>([]);
+  const [shortcuts, setShortcuts] = useState<ShortcutDef[]>(DEFAULT_SHORTCUTS);
 
   useEffect(() => {
     setShortcuts(getStoredShortcuts());
@@ -156,6 +158,17 @@ export default function GlobalShortcuts() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape always closes every open modal, dialog, popover and menu,
+      // regardless of focus (inputs included) or the shortcuts toggle.
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        closeAllOverlays();
+        const target = e.target as HTMLElement | null;
+        if (target && typeof target.blur === "function" && target !== document.body) {
+          target.blur();
+        }
+        return;
+      }
+
       if (typeof window !== "undefined") {
         try {
           if (localStorage.getItem("dnd-shortcuts-enabled") === "false") {
@@ -253,18 +266,27 @@ export default function GlobalShortcuts() {
             }
             return;
           case "navPrivacy":
-            if (pathname !== "/privacy" && pathname !== "/privacy-first") {
+            if (pathname !== "/privacy") {
               e.preventDefault();
               router.push("/privacy");
               showToast("Navigated to Privacy", keyLabel, "nav");
             }
             return;
           case "navShortcuts":
-            if (pathname !== "/shortcuts" && pathname !== "/keyboard-shortcuts") {
+            if (pathname !== "/shortcuts") {
               e.preventDefault();
               router.push("/shortcuts");
               showToast("Opened Keyboard Shortcuts", keyLabel, "shortcuts");
             }
+            return;
+          case "closeModal":
+            e.preventDefault();
+            closeAllOverlays();
+            const activeEl = e.target as HTMLElement | null;
+            if (activeEl && typeof activeEl.blur === "function" && activeEl !== document.body) {
+              activeEl.blur();
+            }
+            showToast("Dismissed all modals & dialogs", keyLabel, "shortcuts");
             return;
         }
       }
@@ -272,7 +294,7 @@ export default function GlobalShortcuts() {
       // Question mark fallback for shortcuts page
       if (e.key === "?") {
         e.preventDefault();
-        if (pathname !== "/shortcuts" && pathname !== "/keyboard-shortcuts") {
+        if (pathname !== "/shortcuts") {
           router.push("/shortcuts");
           showToast("Opened Keyboard Shortcuts", "?", "shortcuts");
         }
@@ -296,6 +318,7 @@ export default function GlobalShortcuts() {
     pathname,
     router,
     showToast,
+    shortcuts,
   ]);
 
   if (!toast) return null;

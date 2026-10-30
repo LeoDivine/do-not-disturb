@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "../../context/theme-context";
 import { useTimer } from "../../context/timer-context";
-import { useSync } from "../../context/SyncContext";
+import { useSync } from "../../context/sync-context";
 import {
   getStoredShortcuts,
   saveStoredShortcuts,
@@ -13,6 +13,7 @@ import {
   SHORTCUTS_UPDATED_EVENT,
   ShortcutDef,
 } from "../../lib/shortcuts/shortcuts-store";
+import { closeAllOverlays } from "../../lib/overlays/use-close-on-escape";
 
 const CATEGORIES: Array<{
   name: "Timer & Flow" | "Navigation" | "Interface";
@@ -47,6 +48,7 @@ export default function ShortcutsPage() {
     activeContainer,
     activeBorder,
     colors,
+    mode,
     isRunning,
     toggleTimer,
     resetTimer,
@@ -62,8 +64,17 @@ export default function ShortcutsPage() {
   const [shortcutsEnabled, setShortcutsEnabled] = useState<boolean>(true);
   const [testActionResult, setTestActionResult] = useState<string | null>(null);
   const [editingActionType, setEditingActionType] = useState<string | null>(null);
+  const [hoveredTryAction, setHoveredTryAction] = useState<string | null>(null);
   const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+
+  const activeTextColor = isDark
+    ? mode === "focus"
+      ? "#0c1017"
+      : mode === "shortBreak"
+      ? "#082f49"
+      : "#431407"
+    : "#ffffff";
 
   // Load shortcuts and subscribe to updates
   useEffect(() => {
@@ -89,11 +100,19 @@ export default function ShortcutsPage() {
       }
     }
 
+    const handleToggle = (e: any) => {
+      if (typeof e.detail === "boolean") {
+        setShortcutsEnabled(e.detail);
+      }
+    };
+    window.addEventListener("dnd-shortcuts-enabled-updated" as any, handleToggle);
+
     return () => {
       window.removeEventListener(
         SHORTCUTS_UPDATED_EVENT as any,
         handleUpdate as EventListener
       );
+      window.removeEventListener("dnd-shortcuts-enabled-updated" as any, handleToggle);
     };
   }, []);
 
@@ -247,6 +266,7 @@ export default function ShortcutsPage() {
         setTestActionResult("Already viewing Keyboard Shortcuts cheatsheet");
         break;
       case "closeModal":
+        closeAllOverlays();
         setTestActionResult("Closed open dialogs, menus, and popup windows");
         break;
     }
@@ -289,11 +309,11 @@ export default function ShortcutsPage() {
   ];
 
   return (
-    <main className="max-w-[1360px] w-full mx-auto p-6 md:p-8 flex flex-col gap-8">
+    <main className="max-w-[1360px] w-full mx-auto px-4 py-5 sm:p-6 md:p-8 flex flex-col gap-6 sm:gap-8">
       {/* 1. Header & Storage Sync Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-[#0f172a] dark:text-white">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-[#0f172a] dark:text-white">
             Keyboard Shortcuts
           </h1>
           <p className="text-xs md:text-sm mt-1 text-[#64748b] dark:text-[#7e8c9f] max-w-2xl leading-relaxed">
@@ -303,7 +323,7 @@ export default function ShortcutsPage() {
         </div>
 
         {/* Global Controls & Sync Info */}
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
           {/* Cloud / Local Sync */}
           <button
             onClick={openSyncModal}
@@ -345,7 +365,7 @@ export default function ShortcutsPage() {
           {/* Reset to Defaults */}
           <button
             onClick={handleResetDefaults}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-slate-200 dark:border-[#1d2634] text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#141b24] hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-slate-200 dark:border-[#1d2634] text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#141b24] hover:text-slate-900 dark:hover:text-white transition-all duration-200 micro-button active:scale-95 cursor-pointer"
             title="Reset all shortcuts to factory defaults"
           >
             <svg
@@ -364,13 +384,20 @@ export default function ShortcutsPage() {
           {/* Master Enable/Disable Toggle */}
           <button
             onClick={handleToggleShortcutsEnabled}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium border transition-all duration-200 micro-button active:scale-95 cursor-pointer ${
               shortcutsEnabled
-                ? isDark
-                  ? "bg-[#64ffda] text-[#0c1017] border-[#64ffda] font-semibold"
-                  : "bg-[#0f766e] text-white border-[#0f766e] font-semibold"
+                ? "font-semibold shadow-xs"
                 : "bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300"
             }`}
+            style={
+              shortcutsEnabled
+                ? {
+                    backgroundColor: activeColor,
+                    borderColor: activeColor,
+                    color: activeTextColor,
+                  }
+                : undefined
+            }
             title={
               shortcutsEnabled
                 ? "Shortcuts are currently active. Click to pause."
@@ -378,13 +405,16 @@ export default function ShortcutsPage() {
             }
           >
             <span
-              className={`w-2 h-2 rounded-full ${
+              className={`w-2 h-2 rounded-full transition-transform duration-200 ${
                 shortcutsEnabled
-                  ? isDark
-                    ? "bg-[#0c1017]"
-                    : "bg-white"
+                  ? ""
                   : "bg-rose-500"
               }`}
+              style={
+                shortcutsEnabled
+                  ? { backgroundColor: activeTextColor }
+                  : undefined
+              }
             />
             <span>{shortcutsEnabled ? "Shortcuts: Active" : "Shortcuts: Paused"}</span>
           </button>
@@ -392,8 +422,8 @@ export default function ShortcutsPage() {
       </div>
 
       {/* 2. Most Popular Shortcuts - Quick Start Hero Cards (No pills) */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <div className="p-4 rounded-2xl border bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] shadow-xs flex flex-col gap-2">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <div className="p-4 rounded-2xl border bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] shadow-xs flex flex-col gap-2 micro-card hover:shadow-md">
           <div className="flex items-center justify-between">
             <kbd className="px-2.5 py-1 rounded-lg font-mono text-xs font-bold border shadow-xs bg-slate-50 dark:bg-[#0c1017] border-slate-200 dark:border-[#2a3649] text-slate-800 dark:text-slate-100">
               Space
@@ -605,8 +635,8 @@ export default function ShortcutsPage() {
               </div>
 
               <div className="border rounded-2xl overflow-hidden bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
+                <div className="overflow-x-auto no-scrollbar">
+                  <table className="w-full text-left text-xs border-collapse min-w-[540px]">
                     <thead>
                       <tr className="border-b border-[#e2e8f0] dark:border-[#1d2634] bg-[#f8fafc]/80 dark:bg-[#0b0f17]/80 text-[#64748b] dark:text-[#7e8c9f]">
                         <th className="py-3 px-5 font-semibold w-48">Shortcut Key</th>
@@ -698,7 +728,20 @@ export default function ShortcutsPage() {
 
                                 <button
                                   onClick={() => executeAction(sc.actionType)}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer bg-[#f8fafc] dark:bg-[#141b24] border-[#e2e8f0] dark:border-[#2a3649] text-[#0f172a] dark:text-white dark:hover:bg-[#64ffda] dark:hover:text-[#0c1017] dark:hover:border-[#64ffda] hover:bg-[#0f766e] hover:text-white hover:border-[#0f766e]"
+                                  onMouseEnter={() => setHoveredTryAction(sc.actionType)}
+                                  onMouseLeave={() => setHoveredTryAction(null)}
+                                  onFocus={() => setHoveredTryAction(sc.actionType)}
+                                  onBlur={() => setHoveredTryAction(null)}
+                                  style={
+                                    hoveredTryAction === sc.actionType
+                                      ? {
+                                          backgroundColor: activeColor,
+                                          borderColor: activeColor,
+                                          color: activeTextColor,
+                                        }
+                                      : undefined
+                                  }
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer bg-[#f8fafc] dark:bg-[#141b24] border-[#e2e8f0] dark:border-[#2a3649] text-[#0f172a] dark:text-white"
                                   title="Test this shortcut right now"
                                 >
                                   <svg
@@ -747,7 +790,11 @@ export default function ShortcutsPage() {
             </div>
             <button
               onClick={() => setSearchQuery("")}
-              className="mt-1 px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer bg-[#0f766e] text-white dark:bg-[#64ffda] dark:text-[#0c1017] border-transparent hover:opacity-90"
+              style={{
+                backgroundColor: activeColor,
+                color: activeTextColor,
+              }}
+              className="mt-1 px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer border-transparent hover:opacity-90"
             >
               Clear search &amp; view all shortcuts
             </button>

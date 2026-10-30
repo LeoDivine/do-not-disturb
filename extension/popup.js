@@ -18,6 +18,28 @@ document.addEventListener("DOMContentLoaded", async () => {
   const shieldStateTag = document.getElementById("shieldStateTag");
   const openDashboardBtn = document.getElementById("openDashboardBtn");
   const emergencyBtn = document.getElementById("emergencyUnblockBtn");
+  const popOutBtn = document.getElementById("popOutBtn");
+
+  // Detached mini window support: keeps popup open when switching websites
+  const isDetached = window.location.search.includes("detached=true");
+  if (isDetached) {
+    if (popOutBtn) popOutBtn.style.display = "none";
+  } else {
+    popOutBtn?.addEventListener("click", async () => {
+      try {
+        await chrome.windows.create({
+          url: chrome.runtime.getURL("popup.html?detached=true"),
+          type: "popup",
+          width: 320,
+          height: 290,
+          focused: true,
+        });
+        window.close();
+      } catch (err) {
+        console.warn("[DND Extension] Failed to pop out window:", err);
+      }
+    });
+  }
 
   let tickInterval = null;
 
@@ -154,9 +176,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadState();
 
   // Open App Button: Focus existing tab or open new
-  openDashboardBtn?.addEventListener("click", async () => {
+  const openDashboard = async () => {
     try {
-      const tabs = await chrome.tabs.query({ url: ["*://localhost:3000/*", "*://127.0.0.1:3000/*"] });
+      const storage = await chrome.storage.local.get(["dnd_redirect"]);
+      let targetOrigin = "http://localhost:3000";
+      if (storage?.dnd_redirect) {
+        try {
+          const parsed = new URL(storage.dnd_redirect);
+          if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+            targetOrigin = parsed.origin;
+          }
+        } catch {}
+      }
+
+      const queryUrls = [`${targetOrigin}/*`, "*://localhost:3000/*", "*://127.0.0.1:3000/*"];
+      const tabs = await chrome.tabs.query({ url: queryUrls });
       if (tabs && tabs.length > 0) {
         const tab = tabs[0];
         if (tab.id) {
@@ -168,11 +202,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         window.close();
         return;
       }
-      await chrome.tabs.create({ url: "http://localhost:3000" });
+      await chrome.tabs.create({ url: targetOrigin });
       window.close();
     } catch {
       window.open("http://localhost:3000", "_blank");
     }
+  };
+
+  openDashboardBtn?.addEventListener("click", openDashboard);
+
+  const brandLink = document.getElementById("brandLink");
+  brandLink?.addEventListener("click", (e) => {
+    e.preventDefault();
+    openDashboard();
   });
 
   // Emergency Pause Button

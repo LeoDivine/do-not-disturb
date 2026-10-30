@@ -4,10 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTheme } from "../../context/theme-context";
 import { useTimer } from "../../context/timer-context";
-import { useSync } from "../../context/SyncContext";
+import { useSync } from "../../context/sync-context";
 import { useExtensionStatus } from "../../lib/blocking/use-extension-status";
 import { getStoredBlocklist } from "../../lib/blocking/blocklist-store";
-import { getSoundSynth, AcousticPreset } from "../../lib/sound/sound-synth";
+import { getSoundSynth, AcousticPreset, ACOUSTIC_PRESETS, isPresetUnlocked } from "../../lib/sound/sound-synth";
+import { getStoredGamification } from "../../lib/gamification/gamification-store";
 import {
   getStoredSettings,
   saveStoredSettings,
@@ -38,6 +39,7 @@ export default function SettingsPage() {
   const [isPlayingChime, setIsPlayingChime] = useState<boolean>(false);
   const [blockedCount, setBlockedCount] = useState<number>(0);
   const [localDataKb, setLocalDataKb] = useState<string>("0.0 KB");
+  const [userLevel, setUserLevel] = useState<number>(() => getStoredGamification().level);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isLoadedRef = useRef<boolean>(false);
 
@@ -219,11 +221,11 @@ export default function SettingsPage() {
   };
 
   return (
-    <main className="max-w-[1360px] w-full mx-auto p-6 md:p-8 flex flex-col gap-6">
+    <main className="max-w-[1360px] w-full mx-auto px-4 py-5 sm:p-6 md:p-8 flex flex-col gap-5 sm:gap-6">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#0f172a] dark:text-white">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#0f172a] dark:text-white">
             Preferences &amp; Settings
           </h1>
           <p className="text-xs mt-1 text-[#64748b] dark:text-[#7e8c9f]">
@@ -262,11 +264,11 @@ export default function SettingsPage() {
       </div>
 
       {/* Main Settings Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
         {/* LEFT COLUMN: Cadence, Rules & Acoustics */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
+        <div className="lg:col-span-8 flex flex-col gap-5 sm:gap-6">
           {/* 1. Timer Durations Card with Distinct Colors for Each Mode */}
-          <div className="p-7 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
+          <div className="p-4 sm:p-6 md:p-7 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div
@@ -392,7 +394,7 @@ export default function SettingsPage() {
                   <button
                     onClick={() => setLongBreakCadence((c) => Math.max(2, c - 1))}
                     aria-label="Decrease long break cadence"
-                    className="w-7 h-7 rounded flex items-center justify-center font-bold text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none bg-[#f1f5f9] dark:bg-[#1c2432] text-[#0f172a] dark:text-white hover:bg-[#e2e8f0] dark:hover:bg-[#283548] border border-[#cbd5e1] dark:border-transparent"
+                    className="w-7 h-7 rounded flex items-center justify-center font-bold text-sm transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer focus-visible:ring-2 focus-visible:outline-none bg-[#f1f5f9] dark:bg-[#1c2432] text-[#0f172a] dark:text-white hover:bg-[#e2e8f0] dark:hover:bg-[#283548] border border-[#cbd5e1] dark:border-transparent"
                     style={{ outlineColor: activeColor }}
                   >
                     −
@@ -403,7 +405,7 @@ export default function SettingsPage() {
                   <button
                     onClick={() => setLongBreakCadence((c) => Math.min(8, c + 1))}
                     aria-label="Increase long break cadence"
-                    className="w-7 h-7 rounded flex items-center justify-center font-bold text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none bg-[#f1f5f9] dark:bg-[#1c2432] text-[#0f172a] dark:text-white hover:bg-[#e2e8f0] dark:hover:bg-[#283548] border border-[#cbd5e1] dark:border-transparent"
+                    className="w-7 h-7 rounded flex items-center justify-center font-bold text-sm transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer focus-visible:ring-2 focus-visible:outline-none bg-[#f1f5f9] dark:bg-[#1c2432] text-[#0f172a] dark:text-white hover:bg-[#e2e8f0] dark:hover:bg-[#283548] border border-[#cbd5e1] dark:border-transparent"
                     style={{ outlineColor: activeColor }}
                   >
                     +
@@ -417,7 +419,7 @@ export default function SettingsPage() {
           </div>
 
           {/* 2. Blocking & Transitions Card */}
-          <div className="p-7 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
+          <div className="p-4 sm:p-6 md:p-7 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
             <div className="flex items-center gap-3 mb-6">
               <div
                 className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
@@ -455,14 +457,14 @@ export default function SettingsPage() {
                 <button
                   onClick={() => setAutoStartBreaks(!autoStartBreaks)}
                   aria-label="Toggle auto-start breaks"
-                  className="w-11 h-6 rounded-xl transition-colors relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none bg-[#cbd5e1] dark:bg-[#1c2432]"
+                  className="w-11 h-6 rounded-xl transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none cursor-pointer active:scale-95 bg-[#cbd5e1] dark:bg-[#1c2432]"
                   style={{
                     backgroundColor: autoStartBreaks ? activeColor : undefined,
                     outlineColor: activeColor,
                   }}
                 >
                   <span
-                    className={`w-5 h-5 rounded-lg transition-transform ${
+                    className={`w-5 h-5 rounded-lg transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
                       autoStartBreaks
                         ? isDark
                           ? "translate-x-5 bg-[#0c1017]"
@@ -486,14 +488,14 @@ export default function SettingsPage() {
                 <button
                   onClick={() => setAutoStartFocus(!autoStartFocus)}
                   aria-label="Toggle auto-start next focus session"
-                  className="w-11 h-6 rounded-xl transition-colors relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none bg-[#cbd5e1] dark:bg-[#1c2432]"
+                  className="w-11 h-6 rounded-xl transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none cursor-pointer active:scale-95 bg-[#cbd5e1] dark:bg-[#1c2432]"
                   style={{
                     backgroundColor: autoStartFocus ? activeColor : undefined,
                     outlineColor: activeColor,
                   }}
                 >
                   <span
-                    className={`w-5 h-5 rounded-lg transition-transform ${
+                    className={`w-5 h-5 rounded-lg transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
                       autoStartFocus
                         ? isDark
                           ? "translate-x-5 bg-[#0c1017]"
@@ -550,7 +552,7 @@ export default function SettingsPage() {
           </div>
 
           {/* 3. Sounds & Acoustics Card */}
-          <div className="p-7 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
+          <div className="p-4 sm:p-6 md:p-7 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div
@@ -576,7 +578,7 @@ export default function SettingsPage() {
               <button
                 onClick={handleTogglePreviewAudio}
                 type="button"
-                className="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] hover:bg-[#f1f5f9] dark:hover:bg-[#1c2432] shadow-xs text-[#0f172a] dark:text-[#f1f5f9]"
+                className="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-all duration-200 micro-button hover:scale-[1.02] active:scale-95 focus-visible:ring-2 focus-visible:outline-none border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] hover:bg-[#f1f5f9] dark:hover:bg-[#1c2432] shadow-xs text-[#0f172a] dark:text-[#f1f5f9]"
                 style={{ color: activeColor, outlineColor: activeColor }}
               >
                 {isPreviewingAudio ? (
@@ -593,166 +595,151 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            {/* 3 Acoustic Preset Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 mb-6">
-              {/* Rain Canopy */}
-              <div
-                onClick={() => handleSelectPreset("rain")}
-                className={`rounded-xl border cursor-pointer transition-all relative overflow-hidden group flex flex-col ${
-                  acousticPreset === "rain"
-                    ? "border-current shadow-md scale-[1.01]"
-                    : "bg-[#f8fafc] dark:bg-[#0b0f17] border-[#e2e8f0] dark:border-[#1d2634] hover:border-[#cbd5e1] dark:hover:border-[#283548]"
-                }`}
-                style={
-                  acousticPreset === "rain"
-                    ? {
-                        backgroundColor: isDark ? colors.containerDark : colors.container,
-                        borderColor: activeBorder,
-                      }
-                    : undefined
-                }
-              >
-                <div className="h-20 w-full relative overflow-hidden">
-                  <img
-                    src="https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=600&q=80"
-                    alt="Raindrops on window"
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                  <div className={`absolute inset-0 ${isDark ? "bg-black/40" : "bg-black/25"}`} />
-                  {isPreviewingAudio && acousticPreset === "rain" && (
-                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1.5 shadow-sm backdrop-blur-md bg-black/60 text-white">
-                      <span className="w-1.5 h-1.5 rounded-full animate-ping bg-teal-400" />
-                      <span>Playing</span>
-                    </div>
-                  )}
-                </div>
-                <div className="p-3.5 flex flex-col flex-1 justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <svg
-                        className="w-3.5 h-3.5 transition-colors"
-                        style={{ color: activeColor }}
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
-                      </svg>
-                      <h3 className="text-xs font-bold text-[#0f172a] dark:text-white">Gentle Rain</h3>
-                    </div>
-                    <p className="text-[10.5px] text-[#64748b] dark:text-[#7e8c9f]">
-                      Cozy, soothing rain sounds
-                    </p>
-                  </div>
-                </div>
-              </div>
+            {/* Acoustic Preset Cards (Horizontal Scrollable Carousel) */}
+            <div className="overflow-x-auto pb-2 -mx-1 px-1 flex gap-3.5 mb-6 no-scrollbar scroll-smooth">
+              {[
+                {
+                  id: "rain" as AcousticPreset,
+                  name: "Gentle Rain",
+                  desc: "Cozy, soothing rain sounds",
+                  img: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "binaural" as AcousticPreset,
+                  name: "Focus Beats",
+                  desc: "Gentle rhythm to help focus",
+                  img: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "space" as AcousticPreset,
+                  name: "Deep Space",
+                  desc: "Warm sound to mask room noise",
+                  img: "https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "campfire" as AcousticPreset,
+                  name: "Cedar Hearth",
+                  desc: "Warm crackling campfire with cedar snaps",
+                  img: "https://images.unsplash.com/photo-1475483768296-6163e08872a1?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "cafe" as AcousticPreset,
+                  name: "Cozy Café",
+                  desc: "Ambient café hum and velvet mug warmth",
+                  img: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "waves" as AcousticPreset,
+                  name: "Ocean Tides",
+                  desc: "Rhythmic rolling waves on sand",
+                  img: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "whitenoise" as AcousticPreset,
+                  name: "Warm Static",
+                  desc: "Velvety brown noise insulation",
+                  img: "https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "forest" as AcousticPreset,
+                  name: "Zen Wind",
+                  desc: "Peaceful breeze through woods",
+                  img: "https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "singingbowl" as AcousticPreset,
+                  name: "Tibetan Bowl",
+                  desc: "Harmonic Tibetan bowl at 528Hz",
+                  img: "https://images.unsplash.com/photo-1512438248247-f0f2a5a8b7f0?auto=format&fit=crop&w=600&q=80",
+                },
+                {
+                  id: "cybergrid" as AcousticPreset,
+                  name: "Neon Cyber Pulse",
+                  desc: "Analog synth pulse with electric flow",
+                  img: "https://images.unsplash.com/photo-1508739773434-c26b3d09e071?auto=format&fit=crop&w=600&q=80",
+                },
+              ].map((item) => {
+                const unlocked = isPresetUnlocked(item.id, userLevel);
+                const isSelected = acousticPreset === item.id;
+                const info = ACOUSTIC_PRESETS[item.id];
 
-              {/* Binaural 40Hz */}
-              <div
-                onClick={() => handleSelectPreset("binaural")}
-                className={`rounded-xl border cursor-pointer transition-all relative overflow-hidden group flex flex-col ${
-                  acousticPreset === "binaural"
-                    ? "border-current shadow-md scale-[1.01]"
-                    : "bg-[#f8fafc] dark:bg-[#0b0f17] border-[#e2e8f0] dark:border-[#1d2634] hover:border-[#cbd5e1] dark:hover:border-[#283548]"
-                }`}
-                style={
-                  acousticPreset === "binaural"
-                    ? {
-                        backgroundColor: isDark ? colors.containerDark : colors.container,
-                        borderColor: activeBorder,
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => {
+                      if (!unlocked) {
+                        alert(`🌿 ${info?.unlockRequirement || `Unlocks at Level ${info?.unlockLevel}`}. Keep focusing to unlock this peaceful soundscape!`);
+                        return;
                       }
-                    : undefined
-                }
-              >
-                <div className="h-20 w-full relative overflow-hidden">
-                  <img
-                    src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=600&q=80"
-                    alt="Headphones and acoustic audio gear"
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                  <div className={`absolute inset-0 ${isDark ? "bg-black/40" : "bg-black/25"}`} />
-                  {isPreviewingAudio && acousticPreset === "binaural" && (
-                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1.5 shadow-sm backdrop-blur-md bg-black/60 text-white">
-                      <span className="w-1.5 h-1.5 rounded-full animate-ping bg-sky-400" />
-                      <span>Playing</span>
-                    </div>
-                  )}
-                </div>
-                <div className="p-3.5 flex flex-col flex-1 justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <svg
-                        className="w-3.5 h-3.5 transition-colors"
-                        style={{ color: activeColor }}
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M2 12h2M6 8h2M10 4h2M14 6h2M18 10h2M22 12h2" />
-                      </svg>
-                      <h3 className="text-xs font-bold text-[#0f172a] dark:text-white">Focus Beats</h3>
-                    </div>
-                    <p className="text-[10.5px] text-[#64748b] dark:text-[#7e8c9f]">
-                      Gentle rhythm to help focus
-                    </p>
-                  </div>
-                </div>
-              </div>
+                      handleSelectPreset(item.id);
+                    }}
+                    className={`min-w-[190px] max-w-[220px] shrink-0 rounded-xl border transition-all duration-300 micro-button active:scale-[0.98] relative overflow-hidden group flex flex-col ${
+                      isSelected
+                        ? "border-current shadow-md scale-[1.01]"
+                        : unlocked
+                        ? "bg-[#f8fafc] dark:bg-[#0b0f17] border-[#e2e8f0] dark:border-[#1d2634] hover:border-[#cbd5e1] dark:hover:border-[#283548] hover:scale-[1.02] cursor-pointer"
+                        : "bg-[#f1f5f9]/60 dark:bg-[#0b0f17]/40 border-[#e2e8f0] dark:border-[#1d2634] opacity-75 cursor-not-allowed"
+                    }`}
+                    style={
+                      isSelected
+                        ? {
+                            backgroundColor: isDark ? colors.containerDark : colors.container,
+                            borderColor: activeBorder,
+                          }
+                        : undefined
+                    }
+                  >
+                    <div className="h-20 w-full relative overflow-hidden">
+                      <img
+                        src={item.img}
+                        alt={item.name}
+                        className={`w-full h-full object-cover transition-transform duration-500 ${
+                          unlocked ? "group-hover:scale-105" : "grayscale"
+                        }`}
+                      />
+                      <div
+                        className={`absolute inset-0 ${
+                          isDark ? "bg-black/40" : "bg-black/25"
+                        }`}
+                      />
 
-              {/* Deep Space */}
-              <div
-                onClick={() => handleSelectPreset("space")}
-                className={`rounded-xl border cursor-pointer transition-all relative overflow-hidden group flex flex-col ${
-                  acousticPreset === "space"
-                    ? "border-current shadow-md scale-[1.01]"
-                    : "bg-[#f8fafc] dark:bg-[#0b0f17] border-[#e2e8f0] dark:border-[#1d2634] hover:border-[#cbd5e1] dark:hover:border-[#283548]"
-                }`}
-                style={
-                  acousticPreset === "space"
-                    ? {
-                        backgroundColor: isDark ? colors.containerDark : colors.container,
-                        borderColor: activeBorder,
-                      }
-                    : undefined
-                }
-              >
-                <div className="h-20 w-full relative overflow-hidden">
-                  <img
-                    src="https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&w=600&q=80"
-                    alt="Starry cosmic deep space"
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                  <div className={`absolute inset-0 ${isDark ? "bg-black/40" : "bg-black/25"}`} />
-                  {isPreviewingAudio && acousticPreset === "space" && (
-                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1.5 shadow-sm backdrop-blur-md bg-black/60 text-white">
-                      <span className="w-1.5 h-1.5 rounded-full animate-ping bg-indigo-400" />
-                      <span>Playing</span>
+                      {/* Locked overlay with subtle padlock */}
+                      {!unlocked && (
+                        <div className="absolute inset-0 bg-black/50 backdrop-blur-[1px] flex items-center justify-center p-2 text-center text-white">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-amber-200">
+                            <svg className="w-3.5 h-3.5 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                            <span>Level {info?.unlockLevel}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Playing preview indicator */}
+                      {isPreviewingAudio && isSelected && unlocked && (
+                        <div className="absolute top-2 right-2 flex items-center gap-1 text-[11px] font-medium text-emerald-300 bg-black/70 px-2 py-0.5 rounded">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>Playing</span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-                <div className="p-3.5 flex flex-col flex-1 justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <svg
-                        className="w-3.5 h-3.5 transition-colors"
-                        style={{ color: activeColor }}
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <circle cx="12" cy="12" r="8" />
-                      </svg>
-                      <h3 className="text-xs font-bold text-[#0f172a] dark:text-white">Deep Space</h3>
+
+                    <div className="p-3 flex flex-col flex-1 justify-between">
+                      <div>
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <h3 className="text-xs font-bold text-[#0f172a] dark:text-white truncate">
+                            {item.name}
+                          </h3>
+                        </div>
+                        <p className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] line-clamp-1">
+                          {item.desc}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-[10.5px] text-[#64748b] dark:text-[#7e8c9f]">
-                      Warm sound to mask room noise
-                    </p>
                   </div>
-                </div>
-              </div>
+                );
+              })}
             </div>
 
             {/* Volume Slider & Completion Chime */}
@@ -861,7 +848,7 @@ export default function SettingsPage() {
               />
             </div>
 
-            <div className="p-6 pt-4">
+            <div className="p-4 sm:p-6 pt-4">
               {/* Declarative Net Box */}
             <div className="p-4 rounded-xl border mb-4 flex items-center gap-3 transition-colors bg-[#f8fafc] dark:bg-[#0b0f17] border-[#e2e8f0] dark:border-[#1d2634]">
               <div
@@ -944,7 +931,7 @@ export default function SettingsPage() {
           </div>
 
           {/* 2. Keyboard Shortcuts Redirect Card */}
-          <div className="p-6 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm flex flex-col gap-4">
+          <div className="p-4 sm:p-6 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div
@@ -1012,7 +999,12 @@ export default function SettingsPage() {
             {/* Redirect Action Button */}
             <Link
               href="/shortcuts"
-              className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer bg-[#0f766e] text-white hover:bg-[#115e59] dark:bg-[#64ffda] dark:text-[#0c1017] dark:hover:bg-[#64ffda]/90"
+              className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer hover:opacity-90 active:scale-[0.99] focus-visible:ring-2 focus-visible:outline-none"
+              style={{
+                backgroundColor: activeColor,
+                color: isDark ? "#0c1017" : "#ffffff",
+                outlineColor: activeColor,
+              }}
             >
               <span>View &amp; Customize All Shortcuts</span>
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -1022,7 +1014,7 @@ export default function SettingsPage() {
           </div>
 
           {/* 3. Privacy & Data Card */}
-          <div className="p-6 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
+          <div className="p-4 sm:p-6 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
             <div className="flex items-center gap-2.5 mb-2">
               <svg
                 className="w-4 h-4 transition-colors"

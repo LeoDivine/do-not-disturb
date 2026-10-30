@@ -26,7 +26,7 @@ Authentication relies on an HTTP-only secure cookie named `dnd_session_token`:
 ## 2. Authentication Endpoints
 
 ### 2.1 Register New Account
-Creates a new user profile, sets the session cookie, and automatically migrates any guest-mode local state provided in `initialPayload`.
+Creates a new user profile, sets the session cookie, and automatically migrates all guest-mode local state provided in `initialPayload` (timer settings, custom presets, shortcuts, master toggles, visualizer themes, active focus anchors, blocklists, focus session histories with retrospective notes, granular deflection event logs, Flow XP, and achievements).
 
 - **Method**: `POST`
 - **Path**: `/api/auth/register`
@@ -41,7 +41,13 @@ Creates a new user profile, sets the session cookie, and automatically migrates 
   "initialPayload": {
     "blocklist": [],
     "shortcuts": [],
-    "settings": {}
+    "settings": {},
+    "presets": [],
+    "deflectionLogs": [],
+    "primaryAnchor": "Write presentation slides",
+    "sessionIntent": "Outline introduction",
+    "visualMode": "garden",
+    "shortcutsEnabled": true
   }
 }
 ```

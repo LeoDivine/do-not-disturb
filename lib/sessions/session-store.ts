@@ -24,6 +24,9 @@ export interface SessionHistoryRecord {
   deflectionsCount: number;
   goal?: string;
   intent?: string;
+  notes?: string;
+  cycle?: number;
+  totalCycles?: number;
 }
 
 export interface DayFocusStat {
@@ -56,7 +59,9 @@ export interface SessionStats {
   peakWindow: {
     start: string;
     end: string;
+    startHour?: number;
     durationHours: string;
+    sessionCount?: number;
     description: string;
     confidenceText: string;
   } | null;
@@ -122,6 +127,53 @@ export function getStoredSessions(): SessionHistoryRecord[] {
       sanitized.push(item);
     }
 
+    if (sanitized.length === 0) {
+      const backupRaw = localStorage.getItem("dnd_focus_sessions_backup");
+      if (backupRaw && backupRaw !== "[]") {
+        try {
+          const parsedBackup = JSON.parse(backupRaw);
+          if (Array.isArray(parsedBackup) && parsedBackup.length > 0) {
+            localStorage.setItem(STORAGE_KEY, backupRaw);
+            return parsedBackup;
+          }
+        } catch {}
+      }
+
+      // If sessions were wiped during account creation, auto-reconstruct from gamification telemetry
+      const gamificationRaw = localStorage.getItem("dnd_gamification_v1");
+      if (gamificationRaw) {
+        try {
+          const g = JSON.parse(gamificationRaw);
+          if (g.totalXp > 0 && g.lastActiveDate) {
+            const totalMinutes = Math.max(15, Math.min(240, Math.round(g.totalXp / 15)));
+            const actualSeconds = totalMinutes * 60;
+            const now = new Date();
+            const recoveredSession: SessionHistoryRecord = {
+              id: `recov_${Date.now()}`,
+              sessionCode: "#SESS-RECOV",
+              timeDisplay: "Today",
+              startedAt: new Date(now.getTime() - actualSeconds * 1000).toISOString(),
+              completedAt: now.toISOString(),
+              mode: "focus",
+              protocol: "Deep Focus",
+              target: `${totalMinutes}:00 / ${totalMinutes}:00`,
+              plannedSeconds: actualSeconds,
+              actualSeconds: actualSeconds,
+              blocks: `${g.totalShieldsRepelled || 0} distracted attempts`,
+              blockColor: "text-emerald-500",
+              status: "Completed",
+              statusSuccess: true,
+              deflectionsCount: g.totalShieldsRepelled || 0,
+            };
+            const recovList = [recoveredSession];
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(recovList));
+            localStorage.setItem("dnd_focus_sessions_backup", JSON.stringify(recovList));
+            return recovList;
+          }
+        } catch {}
+      }
+    }
+
     return sanitized;
   } catch {
     return [];
@@ -132,6 +184,9 @@ export function saveStoredSessions(sessions: SessionHistoryRecord[]): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    if (sessions.length > 0) {
+      localStorage.setItem("dnd_focus_sessions_backup", JSON.stringify(sessions));
+    }
     window.dispatchEvent(new CustomEvent(SESSIONS_UPDATED_EVENT, { detail: sessions }));
   } catch (err) {
     console.error("Failed to save focus sessions:", err);
@@ -199,6 +254,9 @@ export function recordCompletedSession(params: {
   endedEarly?: boolean;
   goal?: string;
   intent?: string;
+  notes?: string;
+  cycle?: number;
+  totalCycles?: number;
 }): SessionHistoryRecord | null {
   // Only focus sessions are tracked as formal focus session history
   if (params.mode !== "focus") {
@@ -282,10 +340,26 @@ export function recordCompletedSession(params: {
     deflectionsCount: deflections,
     goal: params.goal,
     intent: params.intent,
+    notes: params.notes,
+    cycle: params.cycle,
+    totalCycles: params.totalCycles,
   };
 
   const updated = [newRecord, ...sessions];
   saveStoredSessions(updated);
+
+  // Trigger gamification progression asynchronously
+  if (typeof window !== "undefined") {
+    import("../gamification/gamification-store")
+      .then(({ processSessionRewards }) => {
+        const stats = getSessionStats();
+        processSessionRewards(newRecord, Math.max(1, stats.currentStreak));
+      })
+      .catch((err) => {
+        console.warn("Could not process gamification rewards:", err);
+      });
+  }
+
   return newRecord;
 }
 
@@ -389,6 +463,22 @@ export function getSessionStats(): SessionStats {
     }
   }
 
+  // Integrate cloud-synced streak baseline (preserves authentic historical streak on secondary devices)
+  if (typeof window !== "undefined") {
+    try {
+      const rawSynced = localStorage.getItem("dnd_synced_streak");
+      if (rawSynced) {
+        const synced = JSON.parse(rawSynced);
+        if (typeof synced.currentStreak === "number" && synced.currentStreak > currentStreak) {
+          currentStreak = synced.currentStreak;
+        }
+        if (typeof synced.longestStreak === "number" && synced.longestStreak > longestStreak) {
+          longestStreak = synced.longestStreak;
+        }
+      }
+    } catch {}
+  }
+
   // Generate 7-day week breakdown (Mon - Sun)
   const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const shortNames = ["M", "T", "W", "T", "F", "S", "S"];
@@ -451,8 +541,10 @@ export function getSessionStats(): SessionStats {
       peakWindow = {
         start: formatHour(bestHour),
         end: formatHour((bestHour + 3) % 24),
+        startHour: bestHour,
         durationHours: "3.0h",
-        description: "You consistently get into your best flow during this window with fewer distractions.",
+        sessionCount: maxCount,
+        description: `You started ${maxCount} of ${focusSessions.length} focus session${focusSessions.length > 1 ? "s" : ""} in this window.`,
         confidenceText: `Based on your ${focusSessions.length} recorded focus session${focusSessions.length > 1 ? "s" : ""}`,
       };
     }

@@ -62,7 +62,10 @@ export function getStoredSettings(): UserSettingsPayload {
           ? "SUSPEND"
           : "STRICT",
       acousticPreset:
-        typeof parsed.acousticPreset === "string" && ["rain", "binaural", "space"].includes(parsed.acousticPreset)
+        typeof parsed.acousticPreset === "string" && [
+          "rain", "binaural", "space", "campfire", "cafe", "waves",
+          "whitenoise", "forest", "singingbowl", "cybergrid"
+        ].includes(parsed.acousticPreset)
           ? parsed.acousticPreset
           : DEFAULT_SETTINGS.acousticPreset,
       bgAmbienceVolume:

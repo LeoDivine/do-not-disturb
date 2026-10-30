@@ -25,8 +25,11 @@ async function init() {
     const isRunning = session && session.status === "running" && session.endsAt && session.endsAt > now;
 
     if (!isRunning) {
-      console.log("[DND Extension] No running session active on init. Purging all blocking rules.");
-      await clearBlockingRules();
+      // Only purge if blocking was previously active or rules exist to avoid redundant startup I/O
+      if (data && data.dnd_blocking) {
+        console.log("[DND Extension] No running session active on init. Purging active blocking rules.");
+        await clearBlockingRules();
+      }
     } else {
       currentState.activeSession = session;
       currentState.isBlockingActive = true;
@@ -88,6 +91,31 @@ async function clearBlockingRules() {
   }
 }
 
+function getSafeRedirectUrl(candidateUrl) {
+  const fallback = chrome.runtime.getURL("blocked.html");
+  if (!candidateUrl || typeof candidateUrl !== "string") return fallback;
+  try {
+    const parsed = new URL(candidateUrl);
+    // Allow extension internal page
+    if (parsed.protocol === "chrome-extension:") {
+      return candidateUrl;
+    }
+    // Allow local development hostnames
+    const hostname = parsed.hostname.toLowerCase();
+    const isLocal = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+    if (isLocal && (parsed.protocol === "http:" || parsed.protocol === "https:")) {
+      return candidateUrl;
+    }
+    // For hosted web app, require HTTPS and strictly /blocked path
+    if (parsed.protocol === "https:" && parsed.pathname.startsWith("/blocked")) {
+      return candidateUrl;
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 // Apply dynamic blocking rules based on domains list
 async function applyBlockingRules(domains, redirectUrl = DEFAULT_REDIRECT) {
   try {
@@ -102,7 +130,7 @@ async function applyBlockingRules(domains, redirectUrl = DEFAULT_REDIRECT) {
 
     // 3. Construct new declarativeNetRequest rules
     const addRules = [];
-    const destinationUrl = redirectUrl || chrome.runtime.getURL("blocked.html");
+    const destinationUrl = getSafeRedirectUrl(redirectUrl);
 
     activeTargets.forEach((target, index) => {
       const hostname = target.hostname.toLowerCase().trim().replace(/^www\./, "");
@@ -281,18 +309,28 @@ async function handleMessage(message, sender) {
 
 // Listen to messages from content script or popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  handleMessage(message, sender).then((res) => {
-    if (res) sendResponse(res);
-  });
+  handleMessage(message, sender)
+    .then((res) => {
+      sendResponse(res || { success: true, appliedRulesCount: 0 });
+    })
+    .catch((err) => {
+      console.error("[DND Extension] Error handling message:", err);
+      sendResponse({ success: false, error: err ? err.message : "Internal extension error" });
+    });
   return true; // Keep channel open for async response
 });
 
 // Listen to external messages from web application (externally_connectable)
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   console.log("[DND Extension] Received external message from:", sender.url, message);
-  handleMessage(message, sender).then((res) => {
-    if (res) sendResponse(res);
-  });
+  handleMessage(message, sender)
+    .then((res) => {
+      sendResponse(res || { success: true, appliedRulesCount: 0 });
+    })
+    .catch((err) => {
+      console.error("[DND Extension] Error handling external message:", err);
+      sendResponse({ success: false, error: err ? err.message : "Internal extension error" });
+    });
   return true;
 });
 

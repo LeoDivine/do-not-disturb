@@ -21,11 +21,68 @@ class ExtensionClient {
   private listeners: Set<StatusListener> = new Set();
   private pendingRequests: Map<string, { resolve: (val: any) => void; reject: (err: any) => void; timeoutId: any }> = new Map();
   private isInitialized = false;
+  private syncQueue: Promise<any> = Promise.resolve();
 
   constructor() {
     if (typeof window !== "undefined") {
+      // Immediate synchronous detection if content script already stamped the DOM
+      if (this.isDomBridgePresent() || this.hasSessionCachedInstallation()) {
+        this.connectionState = "connected";
+      }
       this.init();
     }
+  }
+
+  /**
+   * Fast synchronous check if extension content script is present in the DOM
+   */
+  public isDomBridgePresent(): boolean {
+    if (typeof document === "undefined") return false;
+    return (
+      document.documentElement.dataset.dndExtensionInstalled === "true" ||
+      document.documentElement.getAttribute("data-dnd-extension-installed") === "true"
+    );
+  }
+
+  private hasSessionCachedInstallation(): boolean {
+    try {
+      return sessionStorage.getItem("dnd_extension_installed") === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  private markInstallationConfirmed() {
+    this.connectionState = "connected";
+    try {
+      sessionStorage.setItem("dnd_extension_installed", "true");
+    } catch {}
+  }
+
+  public markInstallationDisconnected() {
+    if (this.isDomBridgePresent()) {
+      // Content bridge is still present in DOM; do not force disconnected state
+      this.connectionState = "connected";
+      this.notify();
+      return;
+    }
+
+    this.connectionState = "disconnected";
+    this.latestStatus = null;
+
+    try {
+      sessionStorage.removeItem("dnd_extension_installed");
+    } catch {}
+
+    if (this.pendingRequests.size > 0) {
+      for (const [, pending] of this.pendingRequests.entries()) {
+        clearTimeout(pending.timeoutId);
+        pending.reject(new Error("Extension context invalidated or disconnected"));
+      }
+      this.pendingRequests.clear();
+    }
+
+    this.notify();
   }
 
   private init() {
@@ -36,23 +93,47 @@ class ExtensionClient {
     window.addEventListener("message", (event) => {
       if (event.source !== window) return;
       const data = event.data;
-      if (!data || data.source !== "dnd-extension" || !data.requestId) return;
+      if (!data || data.source !== "dnd-extension") return;
+
+      if (data.type === "DND_EXTENSION_UNINSTALLED") {
+        this.markInstallationDisconnected();
+        return;
+      }
+
+      if (!data.requestId) return;
 
       const pending = this.pendingRequests.get(data.requestId);
       if (pending) {
         clearTimeout(pending.timeoutId);
         this.pendingRequests.delete(data.requestId);
         if (data.response && data.response.error) {
+          const errMsg = String(data.response.error);
+          if (errMsg.includes("invalidated") || errMsg.includes("uninstalled")) {
+            this.markInstallationDisconnected();
+          }
           pending.reject(new Error(data.response.error));
         } else {
+          // If we received any valid message from the extension, connection is verified
+          this.markInstallationConfirmed();
+          if (data.response && data.response.type === "DND_STATUS_RESPONSE" && data.response.isInstalled) {
+            this.latestStatus = data.response;
+          }
+          this.notify();
           pending.resolve(data.response);
         }
       }
     });
 
-    // Listen for content script announcement
+    // Listen for content script announcement event
     window.addEventListener("dnd-extension-ready", () => {
+      this.markInstallationConfirmed();
+      this.notify();
       this.checkStatus();
+    });
+
+    // Listen for content script uninstalled event
+    window.addEventListener("dnd-extension-uninstalled", () => {
+      this.markInstallationDisconnected();
     });
 
     // Initial check
@@ -75,7 +156,7 @@ class ExtensionClient {
   /**
    * Send a message to the extension
    */
-  public async sendMessage<T = any>(message: WebToExtensionMessage, timeoutMs = 2500): Promise<T> {
+  public async sendMessage<T = any>(message: WebToExtensionMessage, timeoutMs = 3500): Promise<T> {
     if (typeof window === "undefined") {
       throw new Error("Cannot send extension message during SSR");
     }
@@ -86,11 +167,12 @@ class ExtensionClient {
     return new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        // If we timed out, extension is likely not installed or disconnected
-        if (this.connectionState !== "disconnected") {
-          this.connectionState = "disconnected";
-          this.notify();
+
+        // Only mark disconnected if the DOM bridge is also not found
+        if (!this.isDomBridgePresent()) {
+          this.markInstallationDisconnected();
         }
+
         reject(new Error("Extension did not respond (timeout)"));
       }, timeoutMs);
 
@@ -110,37 +192,51 @@ class ExtensionClient {
   /**
    * Ping and fetch extension status
    */
-  public async checkStatus(): Promise<ExtensionStatusResponse | null> {
+  public async checkStatus(timeoutMs = 3000): Promise<ExtensionStatusResponse | null> {
     try {
-      const res = await this.sendMessage<ExtensionStatusResponse>({
-        type: "DND_GET_STATUS",
-        requestId: `status_${Date.now()}`,
-      });
+      const res = await this.sendMessage<ExtensionStatusResponse>(
+        {
+          type: "DND_GET_STATUS",
+          requestId: `status_${Date.now()}`,
+        },
+        timeoutMs
+      );
 
       if (res && res.isInstalled) {
-        this.connectionState = "connected";
+        this.markInstallationConfirmed();
         this.latestStatus = res;
         this.notify();
         return res;
       }
     } catch {
-      // Expected if extension is not yet loaded in browser
+      // Background worker might be idle/waking up
     }
 
-    // Check if DOM attribute was set by content script
-    if (typeof document !== "undefined" && document.documentElement.dataset.dndExtensionInstalled === "true") {
-      this.connectionState = "connected";
-    } else {
-      this.connectionState = "disconnected";
+    // If DOM bridge or session cache confirms extension presence, keep confirmed status
+    if (this.isDomBridgePresent() || this.hasSessionCachedInstallation()) {
+      this.markInstallationConfirmed();
+      const fallback: ExtensionStatusResponse = {
+        type: "DND_STATUS_RESPONSE",
+        requestId: `status_${Date.now()}`,
+        version: "1.0.0",
+        isInstalled: true,
+        isBlockingActive: false,
+        activeSession: null,
+        ruleCount: 0,
+        blockedDomains: [],
+      };
+      this.latestStatus = fallback;
+      this.notify();
+      return fallback;
     }
 
-    this.latestStatus = null;
-    this.notify();
+    this.markInstallationDisconnected();
     return null;
   }
 
   /**
-   * Synchronize the current session state with the extension
+   * Synchronize the current session state with the extension.
+   * Serialized via internal queue to avoid concurrent declarativeNetRequest collisions.
    */
   public async syncSession(
     session: ActiveSessionPayload,
@@ -148,27 +244,49 @@ class ExtensionClient {
     redirectUrl?: string,
     explicitAction = false
   ): Promise<ExtensionAckResponse> {
-    try {
-      const ack = await this.sendMessage<ExtensionAckResponse>({
-        type: "DND_SYNC_SESSION",
-        requestId: `sync_${Date.now()}`,
-        session,
-        domains,
-        redirectUrl,
-        explicitAction,
-      });
-      await this.checkStatus();
-      return ack;
-    } catch (err: any) {
-      console.warn("[DND Client] syncSession failed (extension may be disabled or uninstalled):", err.message);
+    if (this.connectionState === "disconnected") {
       return {
         type: "DND_ACK",
         requestId: "err",
         success: false,
         appliedRulesCount: 0,
-        error: err.message,
+        error: "Extension is not connected",
       };
     }
+
+    const runSync = async (): Promise<ExtensionAckResponse> => {
+      try {
+        const ack = await this.sendMessage<ExtensionAckResponse>(
+          {
+            type: "DND_SYNC_SESSION",
+            requestId: `sync_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            session,
+            domains,
+            redirectUrl,
+            explicitAction,
+          },
+          3000
+        );
+
+        // Keep status fresh in background without blocking sync return
+        this.checkStatus().catch(() => {});
+        return ack;
+      } catch (err: any) {
+        console.warn("[DND Client] syncSession failed (extension may be busy or inactive):", err.message);
+        this.markInstallationDisconnected();
+        return {
+          type: "DND_ACK",
+          requestId: "err",
+          success: false,
+          appliedRulesCount: 0,
+          error: err.message,
+        };
+      }
+    };
+
+    const task = this.syncQueue.then(runSync, runSync);
+    this.syncQueue = task.catch(() => {});
+    return task;
   }
 
   /**
@@ -176,13 +294,17 @@ class ExtensionClient {
    */
   public async stopSession(): Promise<ExtensionAckResponse> {
     try {
-      const ack = await this.sendMessage<ExtensionAckResponse>({
-        type: "DND_STOP_SESSION",
-        requestId: `stop_${Date.now()}`,
-      });
-      await this.checkStatus();
+      const ack = await this.sendMessage<ExtensionAckResponse>(
+        {
+          type: "DND_STOP_SESSION",
+          requestId: `stop_${Date.now()}`,
+        },
+        3000
+      );
+      this.checkStatus().catch(() => {});
       return ack;
     } catch (err: any) {
+      this.markInstallationDisconnected();
       return {
         type: "DND_ACK",
         requestId: "err",

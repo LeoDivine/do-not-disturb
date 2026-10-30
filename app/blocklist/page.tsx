@@ -108,10 +108,10 @@ export default function BlocklistPage() {
   };
 
   return (
-    <main className="max-w-[1360px] w-full mx-auto p-6 md:p-8 flex flex-col gap-6">
+    <main className="max-w-[1360px] w-full mx-auto px-4 py-5 sm:p-6 md:p-8 flex flex-col gap-5 sm:gap-6">
       {/* Page Header */}
       <div className="flex flex-col gap-1">
-        <h1 className={`text-2xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+        <h1 className={`text-xl sm:text-2xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
           Website Blocklist ({endpoints.filter((e) => e.active).length})
         </h1>
         <p className={`text-xs max-w-xl ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
@@ -122,11 +122,11 @@ export default function BlocklistPage() {
       </div>
 
       {/* Main Blocklist Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
         {/* LEFT COLUMN: Add Domain & Endpoints List */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
+        <div className="lg:col-span-8 flex flex-col gap-5 sm:gap-6">
           {/* 1. Add Restrictive Domain Card */}
-          <div className={`p-6 rounded-2xl border transition-colors ${
+          <div className={`p-4 sm:p-6 rounded-2xl border transition-colors ${
             isDark ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]" : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-sm"
           }`}>
             <div className="flex items-center justify-between mb-4">
@@ -152,7 +152,7 @@ export default function BlocklistPage() {
             </div>
 
             <form onSubmit={handleAddDomain} className="flex flex-col gap-3">
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3">
                 <div
                   className={`flex-1 flex items-center px-4 rounded-xl border transition-colors ${
                     isDark ? "bg-[#0b0f17] border-[#1d2634]" : "bg-[#f8fafc] border-[#cbd5e1]"
@@ -174,7 +174,7 @@ export default function BlocklistPage() {
                 </div>
                 <button
                   type="submit"
-                  className="px-6 py-3 rounded-xl font-semibold text-sm flex items-center gap-1.5 transition-all active:scale-[0.99] shrink-0 shadow-sm focus-visible:ring-2 focus-visible:outline-none"
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5 transition-all active:scale-[0.99] shrink-0 shadow-sm focus-visible:ring-2 focus-visible:outline-none cursor-pointer"
                   style={{
                     backgroundColor: activeColor,
                     color: isDark && mode === "focus" ? "#00201d" : isDark && mode === "shortBreak" ? "#082f49" : isDark && mode === "longBreak" ? "#431407" : "#ffffff",
@@ -200,7 +200,7 @@ export default function BlocklistPage() {
           </div>
 
           {/* 2. Restricted Endpoints Card */}
-          <div className={`p-6 rounded-2xl border transition-colors ${
+          <div className={`p-4 sm:p-6 rounded-2xl border transition-colors ${
             isDark ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]" : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-sm"
           }`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
@@ -229,21 +229,21 @@ export default function BlocklistPage() {
                 </span>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 {/* Search Filter */}
-                <div className={`flex items-center px-3 py-1.5 rounded-xl border text-xs transition-colors ${
+                <div className={`flex items-center flex-1 sm:flex-initial px-3 py-1.5 rounded-xl border text-xs transition-colors ${
                   isDark ? "bg-[#0b0f17] border-[#1d2634] text-[#f1f5f9]" : "bg-[#f8fafc] border-[#cbd5e1] text-[#0f172a]"
                 }`}>
-                  <svg className={`w-3.5 h-3.5 mr-2 ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg className={`w-3.5 h-3.5 mr-2 shrink-0 ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="11" cy="11" r="8" />
                     <line x1="21" y1="21" x2="16.65" y2="16.65" />
                   </svg>
                   <input
                     type="text"
-                    placeholder="Search blocked websites..."
+                    placeholder="Search blocked..."
                     value={filterQuery}
                     onChange={(e) => setFilterQuery(e.target.value)}
-                    className={`bg-transparent focus:outline-none placeholder:text-[#7e8c9f] w-32 sm:w-40 ${
+                    className={`bg-transparent focus:outline-none placeholder:text-[#7e8c9f] w-full sm:w-36 md:w-44 ${
                       isDark ? "text-white" : "text-[#0f172a]"
                     }`}
                   />
@@ -259,7 +259,7 @@ export default function BlocklistPage() {
                     setEndpoints(updated);
                     syncWithExtension(updated);
                   }}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition-colors shrink-0 focus-visible:ring-2 focus-visible:outline-none cursor-pointer ${
                     pausedAll
                       ? "border-current font-semibold"
                       : "border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] hover:bg-[#f1f5f9] dark:hover:bg-[#1a2330] text-[#64748b] dark:text-[#7e8c9f]"
@@ -288,11 +288,11 @@ export default function BlocklistPage() {
                 .map((item) => (
                   <div
                     key={item.id}
-                    className="py-3.5 flex items-center justify-between gap-4 group"
+                    className="py-3.5 px-2 rounded-xl flex items-center justify-between gap-4 group transition-all duration-200 hover:bg-slate-50/80 dark:hover:bg-[#141b24]/60"
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono text-xs transition-colors ${
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono text-xs transition-transform duration-200 group-hover:scale-105 ${
                           !item.active ? "bg-[#f1f5f9] dark:bg-[#141b24] text-[#64748b] dark:text-[#7e8c9f]" : ""
                         }`}
                         style={
@@ -330,14 +330,14 @@ export default function BlocklistPage() {
                       <button
                         onClick={() => handleToggleActive(item.id)}
                         aria-label={`Toggle blocking for ${item.domain}`}
-                        className="w-11 h-6 rounded-full transition-colors relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none"
+                        className="w-11 h-6 rounded-full transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none cursor-pointer active:scale-95"
                         style={{
                           backgroundColor: item.active ? activeColor : isDark ? "#1c2432" : "#cbd5e1",
                           outlineColor: activeColor,
                         }}
                       >
                         <span
-                          className={`w-5 h-5 rounded-full transition-transform ${
+                          className={`w-5 h-5 rounded-full transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
                             item.active
                               ? isDark
                                 ? "translate-x-5 bg-[#00201d]"
@@ -350,7 +350,7 @@ export default function BlocklistPage() {
                       <button
                         onClick={() => handleDeleteDomain(item.id)}
                         aria-label={`Remove ${item.domain}`}
-                        className={`hover:text-red-500 p-1 rounded transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+                        className={`hover:text-red-500 hover:scale-110 active:scale-90 p-1.5 rounded transition-all duration-200 focus-visible:ring-2 focus-visible:outline-none cursor-pointer ${
                           isDark ? "text-[#7e8c9f]" : "text-[#64748b]"
                         }`}
                         style={{ outlineColor: activeColor }}

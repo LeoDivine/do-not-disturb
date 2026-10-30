@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useSync } from "../context/SyncContext";
+import { useSync } from "../context/sync-context";
 import { useTimer } from "../context/timer-context";
 
 export default function SyncButton() {
@@ -19,7 +19,7 @@ export default function SyncButton() {
           ? `Synced as ${user?.email || "User"} • Click to manage`
           : "Saved to this device only • Click to sync across devices"
       }
-      className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 text-xs font-medium transition-all cursor-pointer ${
+      className={`group px-3 py-1.5 rounded-xl border flex items-center gap-2 text-xs font-medium whitespace-nowrap shrink-0 transition-all duration-200 hover:scale-[1.02] active:scale-[0.97] cursor-pointer ${
         isCloud
           ? "shadow-2xs"
           : "bg-slate-100/80 dark:bg-[#141b24] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#222d3d] hover:border-slate-300 dark:hover:border-slate-700"
@@ -35,20 +35,20 @@ export default function SyncButton() {
       }
     >
       <span
-        className={`w-1.5 h-1.5 rounded-full ${
+        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
           isCloud
             ? syncState === "syncing"
               ? "animate-ping"
-              : ""
+              : "animate-pulse"
             : "bg-amber-400"
         }`}
         style={isCloud ? { backgroundColor: activeColor } : undefined}
       />
-      <span className="hidden sm:inline tracking-tight">
+      <span className="hidden sm:inline tracking-tight whitespace-nowrap">
         {isCloud ? "In Sync" : "Sync"}
       </span>
       <svg
-        className={`w-3.5 h-3.5 opacity-60 ${
+        className={`w-3.5 h-3.5 opacity-60 transition-transform duration-300 group-hover:rotate-45 ${
           syncState === "syncing" ? "animate-spin opacity-100" : ""
         }`}
         viewBox="0 0 24 24"

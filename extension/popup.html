@@ -43,59 +43,66 @@
       border-bottom: 1px solid var(--border);
     }
     .brand {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+      cursor: pointer;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    .brand:hover {
+      opacity: 0.9;
+      transform: scale(1.01);
+    }
+    .brand-logo {
+      height: 24px;
+      width: auto;
+      max-width: 140px;
+      object-fit: contain;
+      display: block;
+    }
+    .header-actions {
       display: flex;
       align-items: center;
-      gap: 9px;
+      gap: 6px;
     }
-    .brand-icon {
-      width: 26px;
-      height: 26px;
-      border-radius: 7px;
-      background: var(--primary-dim);
-      border: 1px solid var(--primary-border);
-      display: flex;
+    .pop-out-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: var(--primary);
-      flex-shrink: 0;
+      cursor: pointer;
+      transition: all 0.15s ease;
     }
-    .brand-title {
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      line-height: 1.15;
+    .pop-out-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.2);
     }
-    .brand-subtitle {
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-    .shield-badge {
+    .shield-status {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      font-size: 10.5px;
-      font-weight: 600;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      transition: all 0.2s ease;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-dim);
+      transition: color 0.2s ease;
     }
-    .shield-badge.active {
-      background: var(--primary-dim);
-      border-color: var(--primary-border);
+    .shield-status.active {
       color: var(--primary);
     }
-    .badge-dot {
+    .status-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
       background: #64748b;
     }
-    .shield-badge.active .badge-dot {
+    .shield-status.active .status-dot {
       background: var(--primary);
-      box-shadow: 0 0 6px var(--primary);
     }
 
     /* Live Session Timer Card */
@@ -126,17 +133,15 @@
     }
     .anchor-box {
       font-size: 11px;
-      color: #cbd5e1;
-      background: rgba(255, 255, 255, 0.04);
-      padding: 5px 8px;
-      border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      color: #94a3b8;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
       white-space: nowrap;
       overflow: hidden;
       line-height: 1.2;
+      padding: 2px 0;
     }
     .anchor-box span {
       overflow: hidden;
@@ -149,7 +154,7 @@
     }
     .countdown-digits {
       font-size: 42px;
-      font-weight: 300;
+      font-weight: 700;
       line-height: 1;
       font-variant-numeric: tabular-nums;
       font-family: ui-monospace, SFMono-Regular, monospace;
@@ -166,14 +171,14 @@
       width: 100%;
       height: 3px;
       background: rgba(255, 255, 255, 0.08);
-      border-radius: 999px;
+      border-radius: 2px;
       overflow: hidden;
     }
     .progress-fill {
       height: 100%;
       width: 0%;
       background: var(--primary);
-      border-radius: 999px;
+      border-radius: 2px;
       transition: width 0.3s ease;
     }
 
@@ -205,16 +210,13 @@
       color: var(--text-muted);
       font-size: 10.5px;
     }
-    .shield-state-tag {
-      font-size: 10px;
+    .shield-state-text {
+      font-size: 11px;
       font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--text-muted);
+      color: var(--text-dim);
+      transition: color 0.15s ease;
     }
-    .shield-state-tag.active {
-      background: var(--primary-dim);
+    .shield-state-text.active {
       color: var(--primary);
     }
 
@@ -276,21 +278,21 @@
 <body>
   <!-- Header -->
   <div class="header">
-    <div class="brand">
-      <div class="brand-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <circle cx="12" cy="12" r="8"/>
-          <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
+    <a href="http://localhost:3000" target="_blank" class="brand" id="brandLink" title="Do Not Disturb Dashboard">
+      <img src="icons/logo-dark.png" alt="Do Not Disturb" class="brand-logo" />
+    </a>
+    <div class="header-actions">
+      <button id="popOutBtn" class="pop-out-btn" title="Detach into persistent mini pop-up window" type="button">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/>
+          <line x1="10" y1="14" x2="21" y2="3"/>
         </svg>
+      </button>
+      <div class="shield-status" id="shieldBadge">
+        <span class="status-dot" id="shieldDot"></span>
+        <span id="shieldStatusText">Ready</span>
       </div>
-      <div>
-        <div class="brand-title">Do Not Disturb</div>
-        <div class="brand-subtitle">Focus Companion</div>
-      </div>
-    </div>
-    <div class="shield-badge" id="shieldBadge">
-      <span class="badge-dot" id="shieldDot"></span>
-      <span id="shieldStatusText">Ready</span>
     </div>
   </div>
 
@@ -332,7 +334,7 @@
         <div class="shield-main-sub" id="shieldDetails">0 sites guarded</div>
       </div>
     </div>
-    <span class="shield-state-tag" id="shieldStateTag">Standby</span>
+    <span class="shield-state-text" id="shieldStateTag">Standby</span>
   </div>
 
   <!-- Action Controls -->

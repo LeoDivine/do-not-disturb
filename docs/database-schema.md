@@ -20,6 +20,8 @@ This document describes the PostgreSQL database architecture, Prisma ORM 7 model
 erDiagram
     users ||--o| user_settings : "has preferences"
     users ||--o| user_streaks : "maintains"
+    users ||--o| user_gamification : "tracks flow progression"
+    users ||--o{ user_achievements : "earns"
     users ||--o{ focus_sessions : "records"
     users ||--o{ blocked_websites : "configures"
     users ||--o{ deflection_events : "incurs"
@@ -259,6 +261,35 @@ Streak tracking and aggregate focus hours.
 | `longestStreak` | Int | `0` | Best streak achieved. |
 | `lastActiveDate` | DateTime (`@db.Date`)| Nullable | Most recent active day. |
 | `totalFocusHours`| Float | `0.0` | Lifetime focus hours. |
+
+---
+
+### 4.9 `UserGamification` (`user_gamification`)
+Tracks overall Flow XP, current level tier, Rest Day tokens, and lifetime deflection shields absorbed.
+
+| Column | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | String | PK (`cuid`) | Primary key. |
+| `userId` | String | FK, Unique, Cascade | Associated user ID. |
+| `level` | Int | `1` | Current flow level. |
+| `currentXp` | Int | `0` | Current XP within active level. |
+| `nextLevelXp` | Int | `300` | XP required to reach subsequent level. |
+| `totalXp` | Int | `0` | Cumulative lifetime Flow XP earned. |
+| `streakTokens` | Int | `2` | Compassionate rest day tokens available. |
+| `totalShieldsRepelled` | Int | `0` | Lifetime distraction website attempts intercepted. |
+| `lastActiveDate` | String | Nullable | Local date of last session activity. |
+
+---
+
+### 4.10 `UserAchievement` (`user_achievements`)
+Relational record of unlocked focus milestones and badges for an authenticated user.
+
+| Column | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | String | PK (`cuid`) | Unique identifier. |
+| `userId` | String | FK, Cascade | Associated user ID. |
+| `achievementId` | String | Required | Milestone catalog identifier (e.g. `iron_will`). |
+| `unlockedAt` | DateTime | Default `now()` | Timestamp when milestone was unlocked. |
 
 ---
 

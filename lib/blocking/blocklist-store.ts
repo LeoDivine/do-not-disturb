@@ -181,6 +181,16 @@ export function getDeflectionLogs(): DeflectionEventRecord[] {
   }
 }
 
+export function saveStoredDeflectionLogs(logs: DeflectionEventRecord[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(DEFLECTIONS_LOG_KEY, JSON.stringify(logs.slice(0, 100)));
+    window.dispatchEvent(new CustomEvent(DEFLECTIONS_UPDATED_EVENT, { detail: logs }));
+  } catch (err) {
+    console.error("Failed to save deflection logs:", err);
+  }
+}
+
 export function recordDeflectionEvent(domain: string, url?: string): void {
   if (typeof window === "undefined") return;
   try {

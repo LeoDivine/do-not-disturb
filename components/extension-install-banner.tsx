@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useExtensionStatus } from "../lib/blocking/use-extension-status";
 import { useTheme } from "../context/theme-context";
 import { useTimer } from "../context/timer-context";
+import { useCloseOnEscape } from "../lib/overlays/use-close-on-escape";
 
 const DISMISS_KEY = "dnd-extension-banner-dismissed-until";
 const DISMISS_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 days snooze
@@ -28,6 +29,13 @@ export default function ExtensionInstallBanner() {
   const [isDismissed, setIsDismissed] = useState<boolean>(true);
   const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const wasInstalledRef = React.useRef<boolean>(false);
+
+  // Fast check: if companion extension content script is present in the DOM
+  const isDomBridgeInstalled =
+    typeof document !== "undefined" &&
+    (document.documentElement.dataset.dndExtensionInstalled === "true" ||
+      document.documentElement.getAttribute("data-dnd-extension-installed") === "true");
 
   // Check dismissal timestamp on mount
   useEffect(() => {
@@ -43,16 +51,30 @@ export default function ExtensionInstallBanner() {
     }
   }, []);
 
-  // Listen to Escape to close modal
+  // Track installation status. If extension was installed and becomes disconnected/uninstalled,
+  // immediately show the banner without requiring a page refresh.
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && showSetupModal) {
-        setShowSetupModal(false);
-      }
+    if (isInstalled || isDomBridgeInstalled) {
+      wasInstalledRef.current = true;
+    } else if (connectionState === "disconnected" && wasInstalledRef.current && !isDomBridgeInstalled) {
+      wasInstalledRef.current = false;
+      setIsDismissed(false);
+    }
+  }, [isInstalled, connectionState, isDomBridgeInstalled]);
+
+  // Listen for direct uninstalled event from content script or extension client
+  useEffect(() => {
+    const handleUninstalled = () => {
+      wasInstalledRef.current = false;
+      setIsDismissed(false);
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showSetupModal]);
+
+    window.addEventListener("dnd-extension-uninstalled", handleUninstalled);
+    return () => window.removeEventListener("dnd-extension-uninstalled", handleUninstalled);
+  }, []);
+
+  // Listen to Escape to close modal (global close-all-overlays event)
+  useCloseOnEscape(showSetupModal, () => setShowSetupModal(false));
 
   // Do not render banner on blocked deflection screen
   if (pathname === "/blocked") {
@@ -60,7 +82,7 @@ export default function ExtensionInstallBanner() {
   }
 
   // Do not show banner while still detecting connection or if already installed or dismissed
-  if (connectionState === "detecting" || isInstalled || isDismissed) {
+  if (connectionState === "detecting" || isInstalled || isDomBridgeInstalled || isDismissed) {
     // If the modal was opened, keep modal visible so user can finish setup
     if (!showSetupModal) return null;
   }
@@ -150,7 +172,7 @@ export default function ExtensionInstallBanner() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className={`w-full max-w-[500px] rounded-3xl border p-6 sm:p-7 shadow-2xl relative transition-all duration-200 ${
+            className={`w-full max-w-[500px] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:rounded-3xl border p-5 sm:p-7 shadow-2xl relative transition-all duration-200 no-scrollbar ${
               isDark
                 ? "bg-[#0e141e] border-[#1d2634] text-[#f1f5f9]"
                 : "bg-white border-[#e2e8f0] text-[#0f172a]"
@@ -303,10 +325,7 @@ export default function ExtensionInstallBanner() {
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  setShowSetupModal(false);
-                  handleDismiss();
-                }}
+                onClick={() => setShowSetupModal(false)}
                 className={`px-4 py-2 rounded-xl text-xs font-medium cursor-pointer transition-colors ${
                   isDark
                     ? "bg-[#141b24] hover:bg-[#1a2332] text-slate-200 border border-[#1d2634]"

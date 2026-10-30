@@ -351,7 +351,7 @@
 
   <!-- Top Bar -->
   <header>
-    <a href="http://localhost:3000" class="brand">
+    <a href="http://localhost:3000" class="brand" id="brandLink">
       <span class="brand-dot"></span>
       <span>Do Not Disturb</span>
     </a>
@@ -385,7 +385,7 @@
 
     <div class="actions">
       <a href="http://localhost:3000" class="btn-primary" id="returnBtn">Return to Focus</a>
-      <a href="http://localhost:3000/blocklist" class="btn-secondary">Manage List</a>
+      <a href="http://localhost:3000/blocklist" class="btn-secondary" id="manageBtn">Manage List</a>
     </div>
 
     <span class="shortcut-hint">Press Space to pause/play • Arrow keys change scenery • Esc to return</span>
@@ -516,6 +516,35 @@
       document.getElementById("blockedDomain").innerText = `${clean} is paused`;
     }
 
+    let appBaseUrl = "http://localhost:3000";
+    if (window.location.protocol !== "chrome-extension:") {
+      appBaseUrl = window.location.origin;
+    }
+
+    function applyAppUrls(base) {
+      const brand = document.getElementById("brandLink");
+      const ret = document.getElementById("returnBtn");
+      const manage = document.getElementById("manageBtn");
+      if (brand) brand.href = base;
+      if (ret) ret.href = base;
+      if (manage) manage.href = `${base}/blocklist`;
+    }
+    applyAppUrls(appBaseUrl);
+
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["dnd_redirect"], (res) => {
+        if (res && res.dnd_redirect) {
+          try {
+            const parsed = new URL(res.dnd_redirect);
+            if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+              appBaseUrl = parsed.origin;
+              applyAppUrls(appBaseUrl);
+            }
+          } catch {}
+        }
+      });
+    }
+
     // Breathing rhythm
     const breathPhases = [
       { text: "Breathe in slowly", scale: 1.25, opacity: 0.9 },
@@ -546,7 +575,7 @@
         e.preventDefault();
         togglePause();
       } else if (e.key === "Escape" || e.key === "Enter") {
-        window.location.href = "http://localhost:3000";
+        window.location.href = appBaseUrl;
       } else if (e.key === "ArrowRight") {
         setSlide(currentIdx + 1);
       } else if (e.key === "ArrowLeft") {

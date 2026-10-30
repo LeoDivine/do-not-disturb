@@ -16,6 +16,7 @@ import {
   getTotalDeflections,
   DEFLECTIONS_UPDATED_EVENT,
 } from "../../lib/blocking/blocklist-store";
+import AchievementsSection from "../../components/gamification/achievements-section";
 
 export default function StatisticsPage() {
   const { isDark } = useTheme();
@@ -58,11 +59,11 @@ export default function StatisticsPage() {
   const weeklyProgressPercent = Math.min(100, Math.round((weeklyHoursNum / targetWeeklyGoal) * 100));
 
   return (
-    <main className="max-w-[1360px] w-full mx-auto p-6 md:p-8 flex flex-col gap-6">
+    <main className="max-w-[1360px] w-full mx-auto px-4 py-5 sm:p-6 md:p-8 flex flex-col gap-5 sm:gap-6">
       {/* Top 4 Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5">
         {/* Metric 1: Net Focused Time */}
-        <div className={`p-6 rounded-2xl border transition-colors ${
+        <div className={`p-4 sm:p-6 rounded-2xl border transition-colors micro-card hover:shadow-md ${
           isDark ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]" : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-sm"
         }`}>
           <div className="flex items-center justify-between mb-3">
@@ -82,7 +83,7 @@ export default function StatisticsPage() {
             </svg>
           </div>
           <div className="flex items-baseline gap-1.5 mb-3">
-            <span className={`text-4xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+            <span className={`text-3xl sm:text-4xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
               {stats.totalFocusHours}
             </span>
             <span className={`text-xs font-medium ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>hrs</span>
@@ -105,7 +106,7 @@ export default function StatisticsPage() {
         </div>
 
         {/* Metric 2: Sessions Finished */}
-        <div className={`p-6 rounded-2xl border transition-colors ${
+        <div className={`p-4 sm:p-6 rounded-2xl border transition-colors micro-card hover:shadow-md ${
           isDark ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]" : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-sm"
         }`}>
           <div className="flex items-center justify-between mb-3">
@@ -125,7 +126,7 @@ export default function StatisticsPage() {
             </svg>
           </div>
           <div className="flex items-baseline gap-1.5 mb-3">
-            <span className={`text-4xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+            <span className={`text-3xl sm:text-4xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
               {stats.completedCount}
             </span>
             <span className={`text-xs font-medium ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
@@ -150,7 +151,7 @@ export default function StatisticsPage() {
         </div>
 
         {/* Metric 3: Distractions Prevented */}
-        <div className={`p-6 rounded-2xl border transition-colors ${
+        <div className={`p-4 sm:p-6 rounded-2xl border transition-colors micro-card hover:shadow-md ${
           isDark ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]" : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-sm"
         }`}>
           <div className="flex items-center justify-between mb-3">
@@ -160,7 +161,7 @@ export default function StatisticsPage() {
             <span className="w-2 h-2 rounded-full bg-orange-500" />
           </div>
           <div className="flex items-baseline gap-1.5 mb-3">
-            <span className={`text-4xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+            <span className={`text-3xl sm:text-4xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
               {totalDeflections}
             </span>
             <span className={`text-xs font-medium ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>visits</span>
@@ -172,7 +173,7 @@ export default function StatisticsPage() {
         </div>
 
         {/* Metric 4: Current Streak */}
-        <div className={`p-6 rounded-2xl border transition-colors ${
+        <div className={`p-4 sm:p-6 rounded-2xl border transition-colors micro-card hover:shadow-md ${
           isDark ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]" : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-sm"
         }`}>
           <div className="flex items-center justify-between mb-3">
@@ -192,7 +193,7 @@ export default function StatisticsPage() {
             </svg>
           </div>
           <div className="flex items-baseline gap-1.5 mb-3">
-            <span className={`text-4xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+            <span className={`text-3xl sm:text-4xl font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
               {stats.currentStreak}
             </span>
             <span className={`text-xs font-medium ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
@@ -209,9 +210,9 @@ export default function StatisticsPage() {
       </div>
 
       {/* Middle Row: Weekly Focus Rhythm & Peak Cognitive Window */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
         {/* Left: Weekly Focus Rhythm Chart */}
-        <div className={`lg:col-span-7 p-7 rounded-2xl border flex flex-col justify-between transition-colors ${
+        <div className={`lg:col-span-7 p-4 sm:p-6 md:p-7 rounded-2xl border flex flex-col justify-between transition-colors ${
           isDark ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]" : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-sm"
         }`}>
           <div>
@@ -351,7 +352,7 @@ export default function StatisticsPage() {
                     <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
                   </svg>
                 </div>
-                <span>WHEN YOU WORK BEST</span>
+                <span>MOST ACTIVE HOURS</span>
               </div>
             </div>
           </div>
@@ -359,12 +360,12 @@ export default function StatisticsPage() {
           <div className="p-6 pt-2 flex flex-col justify-between flex-1">
             <div>
               <h2 className={`text-base font-bold tracking-tight mb-2 ${isDark ? "text-white" : "text-[#0f172a]"}`}>
-                Your Peak Focus Hours
+                Most Active Focus Hours
               </h2>
               <p className={`text-xs leading-relaxed mb-5 ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
                 {stats.peakWindow
                   ? stats.peakWindow.description
-                  : "Complete at least 3 focus sessions to uncover your natural peak productivity window and cognitive rhythm."}
+                  : "Complete at least 3 focus sessions to identify your most active focus window."}
               </p>
             </div>
 
@@ -373,7 +374,7 @@ export default function StatisticsPage() {
               isDark ? "bg-[#0b0f17] border-[#1d2634] text-[#f1f5f9]" : "bg-[#f8fafc] border-[#e2e8f0] text-[#0f172a]"
             }`}>
               <div className="flex items-center justify-between text-xs mb-3">
-                <span className={isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}>Best Focus Window</span>
+                <span className={isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}>Most Active Window</span>
                 <span
                   className="font-bold transition-colors"
                   style={{ color: activeColor }}
@@ -384,34 +385,45 @@ export default function StatisticsPage() {
                 </span>
               </div>
 
-              <div className={`w-full h-3 rounded-md relative mb-2 overflow-hidden flex ${
-                isDark ? "bg-[#17202c]" : "bg-[#e2e8f0]"
-              }`}>
-                <div className={`w-[20%] h-full ${isDark ? "bg-[#121924]" : "bg-[#cbd5e1]"}`} />
-                <div
-                  className="w-[35%] h-full border-x relative flex items-center justify-center transition-colors"
-                  style={{
-                    backgroundColor: isDark ? colors.containerDark : colors.container,
-                    borderColor: activeColor,
-                  }}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shadow-sm"
-                    style={{ backgroundColor: activeColor }}
-                  />
-                </div>
-                <div className={`w-[45%] h-full ${isDark ? "bg-[#121924]" : "bg-[#cbd5e1]"}`} />
-              </div>
+              {(() => {
+                const startHour = stats.peakWindow?.startHour ?? 9;
+                const leftPct = Math.min(100, Math.max(0, (startHour / 24) * 100));
+                const widthPct = (3 / 24) * 100;
+                const rightPct = Math.max(0, 100 - leftPct - widthPct);
+
+                return (
+                  <div className={`w-full h-3 rounded-md relative mb-2 overflow-hidden flex ${
+                    isDark ? "bg-[#17202c]" : "bg-[#e2e8f0]"
+                  }`}>
+                    <div style={{ width: `${leftPct}%` }} className={`h-full shrink-0 ${isDark ? "bg-[#121924]" : "bg-[#cbd5e1]"}`} />
+                    <div
+                      style={{
+                        width: `${widthPct}%`,
+                        backgroundColor: isDark ? colors.containerDark : colors.container,
+                        borderColor: activeColor,
+                      }}
+                      className="h-full border-x relative shrink-0 flex items-center justify-center transition-colors"
+                    >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shadow-sm"
+                        style={{ backgroundColor: activeColor }}
+                      />
+                    </div>
+                    <div style={{ width: `${rightPct}%` }} className={`h-full shrink-0 ${isDark ? "bg-[#121924]" : "bg-[#cbd5e1]"}`} />
+                  </div>
+                );
+              })()}
               <div className={`flex justify-between text-[10px] ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
-                <span>06:00</span>
+                <span>12 AM</span>
+                <span>6 AM</span>
                 <span
                   className="font-medium transition-colors"
                   style={{ color: activeColor }}
                 >
-                  {stats.peakWindow ? `Peak window (${stats.peakWindow.durationHours})` : "Peak window"}
+                  {stats.peakWindow ? `Top window (${stats.peakWindow.durationHours})` : "Top window"}
                 </span>
-                <span>14:00</span>
-                <span>22:00</span>
+                <span>6 PM</span>
+                <span>12 AM</span>
               </div>
             </div>
 
@@ -444,27 +456,30 @@ export default function StatisticsPage() {
         </div>
       </div>
 
+      {/* Gamification Achievements & Badges */}
+      <AchievementsSection />
+
       {/* Bottom Section: Telemetry Log & Intercept History */}
-      <div className={`p-7 rounded-2xl border transition-colors ${
+      <div className={`p-4 sm:p-6 md:p-7 rounded-2xl border transition-colors ${
         isDark ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]" : "bg-white border-[#e2e8f0] text-[#0f172a] shadow-sm"
       }`}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 sm:mb-6">
           <div>
             <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}>
               SESSION HISTORY
             </span>
-            <h2 className={`text-base font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
+            <h2 className={`text-sm sm:text-base font-bold tracking-tight ${isDark ? "text-white" : "text-[#0f172a]"}`}>
               Past Sessions &amp; Distraction Log
             </h2>
           </div>
-          <div className="flex items-center gap-4 text-xs">
+          <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 text-xs">
             <span className={isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}>
               Showing {records.length} session{records.length === 1 ? "" : "s"}
             </span>
             {records.length > 0 && (
               <button
                 onClick={handleClearHistory}
-                className={`hover:underline flex items-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none rounded px-2 py-1 ${
+                className={`hover:underline flex items-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none rounded px-2 py-1 cursor-pointer ${
                   isDark ? "text-[#7e8c9f] hover:text-white" : "text-[#64748b] hover:text-[#0f172a]"
                 }`}
                 style={{ outlineColor: activeColor }}
@@ -479,9 +494,9 @@ export default function StatisticsPage() {
           </div>
         </div>
 
-        {/* Sessions Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+        {/* Sessions Table with smooth horizontal scrolling */}
+        <div className="overflow-x-auto -mx-2 sm:mx-0 px-2 sm:px-0 no-scrollbar">
+          <table className="w-full text-left text-xs min-w-[580px]">
             <thead>
               <tr className={`border-b ${isDark ? "border-[#1d2634] text-[#7e8c9f]" : "border-[#e2e8f0] text-[#64748b]"}`}>
                 <th className="pb-3 font-semibold uppercase tracking-wider">SESSION</th>

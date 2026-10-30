@@ -1,5 +1,8 @@
 import { BlocklistEndpoint } from "../blocking/blocklist-store";
 import { SessionHistoryRecord } from "../sessions/session-store";
+import { UserGamificationState } from "../gamification/types";
+
+export type { UserGamificationState };
 
 export interface SerializedShortcut {
   actionType: string;
@@ -36,6 +39,13 @@ export interface UserStreakPayload {
   lastActiveDate?: string | null;
 }
 
+export interface DeflectionLogPayload {
+  id: string;
+  domain: string;
+  url?: string;
+  timestamp: number;
+}
+
 export interface SyncPayload {
   blocklist: BlocklistEndpoint[];
   shortcuts: SerializedShortcut[];
@@ -43,6 +53,12 @@ export interface SyncPayload {
   presets?: TimerPresetPayload[];
   streak?: Partial<UserStreakPayload>;
   sessions?: SessionHistoryRecord[];
+  gamification?: Partial<UserGamificationState>;
+  primaryAnchor?: string;
+  sessionIntent?: string;
+  visualMode?: string;
+  shortcutsEnabled?: boolean;
+  deflectionLogs?: DeflectionLogPayload[];
   exportedAt?: string;
   version?: string;
 }

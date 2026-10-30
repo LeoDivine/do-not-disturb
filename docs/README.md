@@ -11,6 +11,7 @@ Explore the detailed documentation guides below:
 | Document | Description |
 | :--- | :--- |
 | **[Architecture Guide](architecture.md)** | Technical architecture, data flow, Web Audio synthesis engine, extension bridge, and state synchronization. |
+| **[Gamification & Zen Sanctuary Guide](gamification-guide.md)** | Flow XP engine, levels, compassionate streaks, procedural Zen Bonsai, soundscape unlocks, and milestones. |
 | **[Companion Extension Guide](extension-guide.md)** | Browser extension architecture, `declarativeNetRequest` rules engine, content script bridge, installation, and debugging. |
 | **[API Reference](api-reference.md)** | Full specification of REST API endpoints for authentication, bi-directional data synchronization, and assets. |
 | **[Database Schema](database-schema.md)** | Comprehensive Prisma ORM 7 schema documentation, PostgreSQL models, relations, indexes, and migrations. |
@@ -23,11 +24,12 @@ Explore the detailed documentation guides below:
 
 ## 🌟 System Overview
 
-Do Not Disturb is designed around three core principles:
+Do Not Disturb is designed around four core principles:
 
 1. **Uncompromising Focus**: A customizable Pomodoro-style timer with automatic break sequencing, cycle management, and distraction deflection.
 2. **True Browser-Level Blocking**: Unlike traditional web timers that only run in a tab, the companion Chromium extension enforces strict website blocking at the network request level using `chrome.declarativeNetRequest`, deflecting distractions back to your focus zone.
-3. **Local-First with Seamless Cloud Sync**: Full functionality works 100% offline without requiring an account. When users sign in, their settings, blocklists, shortcuts, and session histories seamlessly merge and sync to PostgreSQL.
+3. **Calm, Intrinsic Gamification**: A mindful Flow XP and leveling system with compassionate streaks (Rest Day tokens), blossoming Zen Bonsai sanctuary, and procedural audio unlocks that reward deep work without anxiety or clutter.
+4. **Local-First with Seamless Cloud Sync**: Full functionality works 100% offline without requiring an account. When users sign in, their settings, custom presets, blocklists, shortcuts and toggles, visual themes, active focus anchors, granular deflection logs, gamification state, and session histories with notes seamlessly merge and sync to PostgreSQL.
 
 ---
 
