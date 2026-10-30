@@ -236,7 +236,7 @@ export default function SyncModal() {
             )}
 
             {/* Google Sign In Button */}
-            <button
+            {/* <button
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isGoogleLoading || isSubmitting}
@@ -268,15 +268,15 @@ export default function SyncModal() {
                 </svg>
               )}
               <span>{isSignUp ? "Continue with Google" : "Sign in with Google"}</span>
-            </button>
+            </button> */}
 
             {/* Divider */}
-            <div className="relative my-3.5 flex items-center justify-center">
+            {/* <div className="relative my-3.5 flex items-center justify-center">
               <div className="border-t border-slate-200 dark:border-[#1d2634] w-full" />
               <span className="bg-white dark:bg-[#0e141e] px-2.5 text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">
                 or
               </span>
-            </div>
+            </div> */}
 
             {/* Minimalist Form */}
             <form onSubmit={handleSubmit} className="space-y-3">
