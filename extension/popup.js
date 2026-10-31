@@ -178,9 +178,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Open App Button: Focus existing tab or open new
   const openDashboard = async () => {
     try {
-      const storage = await chrome.storage.local.get(["dnd_redirect"]);
-      let targetOrigin = "http://localhost:3000";
-      if (storage?.dnd_redirect) {
+      const storage = await chrome.storage.local.get(["dnd_app_origin", "dnd_redirect"]);
+      let targetOrigin = "https://www.donotdistrb.com";
+      if (storage?.dnd_app_origin) {
+        targetOrigin = storage.dnd_app_origin;
+      } else if (storage?.dnd_redirect) {
         try {
           const parsed = new URL(storage.dnd_redirect);
           if (parsed.protocol === "http:" || parsed.protocol === "https:") {
@@ -189,7 +191,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         } catch {}
       }
 
-      const queryUrls = [`${targetOrigin}/*`, "*://localhost:3000/*", "*://127.0.0.1:3000/*"];
+      const queryUrls = [
+        `${targetOrigin}/*`,
+        "*://www.donotdistrb.com/*",
+        "*://donotdistrb.com/*",
+        "*://*.donotdistrb.com/*",
+        "*://www.donotdisturb.com/*",
+        "*://donotdisturb.com/*",
+        "*://*.donotdisturb.com/*",
+        "*://do-not-disturb.vercel.app/*",
+        "*://localhost:3000/*",
+        "*://localhost:3001/*",
+        "*://127.0.0.1:3000/*"
+      ];
       const tabs = await chrome.tabs.query({ url: queryUrls });
       if (tabs && tabs.length > 0) {
         const tab = tabs[0];
@@ -205,7 +219,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       await chrome.tabs.create({ url: targetOrigin });
       window.close();
     } catch {
-      window.open("http://localhost:3000", "_blank");
+      window.open("https://www.donotdistrb.com", "_blank");
     }
   };
 

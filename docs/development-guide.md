@@ -153,7 +153,9 @@ To regenerate `public/do-not-disturb-extension.zip` for user downloads:
 
 **Windows (PowerShell):**
 ```powershell
-Compress-Archive -Path .\extension\* -DestinationPath .\public\do-not-disturb-extension.zip -Force
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path .\public\do-not-disturb-extension.zip) { Remove-Item -Force .\public\do-not-disturb-extension.zip }
+[System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path .\extension), (Resolve-Path .\public).Path + "\do-not-disturb-extension.zip")
 ```
 
 **macOS / Linux:**
@@ -179,7 +181,7 @@ pnpm prisma:deploy
 3. Add environment variables:
    - `DATABASE_URL`: Production PostgreSQL connection string.
    - `AUTH_SECRET`: Strong 64-character random string.
-   - `NEXT_PUBLIC_APP_URL`: Production canonical domain (e.g., `https://donotdisturb.app`).
+   - `NEXT_PUBLIC_APP_URL`: Production canonical domain (`https://www.donotdistrb.com`).
 4. Set build command: `pnpm prisma:generate && next build`.
 5. Deploy.
 
@@ -194,8 +196,8 @@ pnpm prisma:deploy
 ### Issue 2: Extension Shows "Disconnected" in Web App
 - **Symptom**: The banner on `/blocklist` displays "Extension not detected".
 - **Checks**:
-  1. Confirm that `extension/manifest.json` includes `http://localhost:3000/*` in both `content_scripts` and `externally_connectable`.
-  2. Verify the extension is enabled in `chrome://extensions`.
+  1. Confirm that `extension/manifest.json` includes `https://www.donotdistrb.com/*` and `http://localhost:3000/*` in both `content_scripts` and `externally_connectable`.
+  2. Verify the extension is enabled in `chrome://extensions`. If you recently made changes, click the circular **Reload** icon on the extension card.
   3. Hard refresh the web app page (`Ctrl + F5` or `Cmd + Shift + R`).
 
 ### Issue 3: EPERM or Permission Errors on Windows

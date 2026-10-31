@@ -72,6 +72,8 @@ When a focus session is active and you attempt to navigate to a blocked site:
    - A guided breathing animation to recenter your focus.
 4. Each deflected attempt is recorded in your deflection metrics.
 
+> **Instant Tab Protection**: If you already have a blocked website open in another tab (such as a playing YouTube video) when you click **Start Focus**, the companion extension automatically deflects that open tab immediately — no manual page refresh required.
+
 ---
 
 ## 4. Ambient Soundscapes & Chimes

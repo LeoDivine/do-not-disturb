@@ -20,6 +20,8 @@ const PROTECTED_DOMAINS = new Set([
   "brave",
   "mozilla",
   "vercel.app",
+  "donotdistrb.com",
+  "donotdisturb.com",
 ]);
 
 /**

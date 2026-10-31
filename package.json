@@ -11,6 +11,7 @@
 		"prisma:migrate": "prisma migrate dev",
 		"prisma:deploy": "prisma migrate deploy",
 		"prisma:studio": "prisma studio",
+		"package:extension": "powershell -Command \"Add-Type -AssemblyName System.IO.Compression.FileSystem; if (Test-Path public/do-not-disturb-extension.zip) { Remove-Item -Force public/do-not-disturb-extension.zip }; [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path extension), (Join-Path (Resolve-Path public) do-not-disturb-extension.zip))\"",
 		"postinstall": "prisma generate"
 	},
 	"dependencies": {

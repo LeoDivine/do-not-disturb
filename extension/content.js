@@ -15,6 +15,16 @@
   } catch {}
   window.dispatchEvent(new CustomEvent("dnd-extension-ready", { detail: { version: "1.0.0" } }));
 
+  // Register current origin with background worker immediately
+  try {
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({
+        type: "DND_REGISTER_ORIGIN",
+        origin: window.location.origin,
+      });
+    }
+  } catch {}
+
   let isCleanedUp = false;
 
   const cleanupExtensionPresence = () => {

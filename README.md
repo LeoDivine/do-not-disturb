@@ -49,8 +49,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ### 4. Install Companion Browser Extension
 1. Open `chrome://extensions` (or `edge://extensions` / `brave://extensions`).
 2. Enable **Developer mode** (top-right).
-3. Click **Load unpacked** and select the [`extension/`](extension/) directory.
-4. Visit `http://localhost:3000/blocklist` to confirm the extension is connected!
+3. Click **Load unpacked** and select the [`extension/`](extension/) directory (or unzipped package).
+4. Visit `https://www.donotdistrb.com` (or `http://localhost:3000/blocklist` locally) to confirm the extension is connected!
 
 ---
 

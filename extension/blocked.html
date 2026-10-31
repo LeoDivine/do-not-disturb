@@ -351,7 +351,7 @@
 
   <!-- Top Bar -->
   <header>
-    <a href="http://localhost:3000" class="brand" id="brandLink">
+    <a href="https://www.donotdistrb.com" class="brand" id="brandLink">
       <span class="brand-dot"></span>
       <span>Do Not Disturb</span>
     </a>
@@ -384,8 +384,8 @@
     <p class="explanation">Take a gentle pause. Protect your attention and remain in your flow.</p>
 
     <div class="actions">
-      <a href="http://localhost:3000" class="btn-primary" id="returnBtn">Return to Focus</a>
-      <a href="http://localhost:3000/blocklist" class="btn-secondary" id="manageBtn">Manage List</a>
+      <a href="https://www.donotdistrb.com" class="btn-primary" id="returnBtn">Return to Focus</a>
+      <a href="https://www.donotdistrb.com/blocklist" class="btn-secondary" id="manageBtn">Manage List</a>
     </div>
 
     <span class="shortcut-hint">Press Space to pause/play • Arrow keys change scenery • Esc to return</span>
@@ -516,7 +516,7 @@
       document.getElementById("blockedDomain").innerText = `${clean} is paused`;
     }
 
-    let appBaseUrl = "http://localhost:3000";
+    let appBaseUrl = "https://www.donotdistrb.com";
     if (window.location.protocol !== "chrome-extension:") {
       appBaseUrl = window.location.origin;
     }
@@ -532,10 +532,11 @@
     applyAppUrls(appBaseUrl);
 
     if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get(["dnd_redirect"], (res) => {
-        if (res && res.dnd_redirect) {
+      chrome.storage.local.get(["dnd_app_origin", "dnd_redirect"], (res) => {
+        if (res && (res.dnd_app_origin || res.dnd_redirect)) {
           try {
-            const parsed = new URL(res.dnd_redirect);
+            const urlToParse = res.dnd_app_origin || res.dnd_redirect;
+            const parsed = new URL(urlToParse);
             if (parsed.protocol === "http:" || parsed.protocol === "https:") {
               appBaseUrl = parsed.origin;
               applyAppUrls(appBaseUrl);

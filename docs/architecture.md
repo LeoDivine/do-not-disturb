@@ -140,15 +140,17 @@ Because regular web pages cannot directly invoke privileged `chrome.*` APIs, a t
      requestId: "req_123",
      session: activeSessionPayload,
      domains: activeBlockedDomains,
-     redirectUrl: "http://localhost:3000/blocked"
+     redirectUrl: "https://www.donotdistrb.com/blocked"
    }, "*");
    ```
 2. **Content Script Bridge (`content.js`)**:
-   - Injected into matched origins (`http://localhost:3000/*`, `https://*.vercel.app/*`).
+   - Injected into matched origins (`https://*.donotdistrb.com/*`, `http://localhost:3000/*`, `https://*.vercel.app/*`).
+   - Automatically registers the active origin on load via `DND_REGISTER_ORIGIN`.
    - Listens for window messages with `source: "DND_WEB_APP"`.
    - Relays the message to the background service worker using `chrome.runtime.sendMessage`.
 3. **Background Service Worker (`background.js`)**:
    - Processes the request and configures `chrome.declarativeNetRequest` dynamic rules.
+   - Instantly deflects any currently open tabs matching the target domains via `chrome.tabs.update`.
    - Stores session state in `chrome.storage.local`.
    - Schedules a `chrome.alarms` timer for automatic unblocking.
    - Returns an acknowledgment message back down the chain to update the web UI.
@@ -161,12 +163,14 @@ sequenceDiagram
     participant Content as Content Script (content.js)
     participant Worker as Service Worker (background.js)
     participant DNR as declarativeNetRequest
+    participant Tabs as Open Browser Tabs
     participant Alarm as chrome.alarms
 
     User->>WebApp: Click "Start Focus"
     WebApp->>Content: window.postMessage(DND_SYNC_SESSION)
     Content->>Worker: chrome.runtime.sendMessage(DND_SYNC_SESSION)
     Worker->>DNR: updateDynamicRules(addRules: [...])
+    Worker->>Tabs: Redirect open blocked tabs to /blocked
     Worker->>Alarm: chrome.alarms.create("dnd_session_expiry", { delayInMinutes })
     Worker-->>Content: Response { success: true, activeRules: N }
     Content-->>WebApp: window.postMessage(DND_ACK)

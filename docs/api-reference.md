@@ -9,7 +9,7 @@ This document provides a complete specification for all HTTP Route Handlers avai
 ### 1.1 Base URL
 All API endpoints are hosted under `/api` on the application domain:
 - Local development: `http://localhost:3000/api`
-- Production: `https://your-domain.com/api`
+- Production: `https://www.donotdistrb.com/api`
 
 ### 1.2 Session Handling
 Authentication relies on an HTTP-only secure cookie named `dnd_session_token`:

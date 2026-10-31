@@ -5,9 +5,10 @@ This Chromium browser extension (Manifest V3) enables real browser-level website
 ## How It Works
 
 1. **Declarative Network Request (`chrome.declarativeNetRequest`):** When you start a focus session in the web app, the extension creates dynamic redirection rules for your active blocklist.
-2. **Deflection to Zen Sanctuary:** Navigations to blocked sites (e.g. `youtube.com`) are redirected to the local `/blocked` page (`http://localhost:3000/blocked?blocked=youtube.com`) or the bundled offline `blocked.html`.
+2. **Deflection to Zen Sanctuary:** Navigations to blocked sites (e.g. `youtube.com`) are redirected to the sanctuary page (`https://www.donotdistrb.com/blocked?blocked=youtube.com` or local equivalent) or the bundled offline `blocked.html`.
 3. **Automatic Session Alarms:** The extension uses `chrome.alarms` with your timer's end time, ensuring websites are unblocked automatically even if you close the web app tab.
-4. **Seamless Content Bridge:** The extension injects a bridge on `http://localhost:3000/*` that connects automatically with no manual configuration or extension ID copying required.
+4. **Seamless Content Bridge:** The extension injects an automatic bridge on production (`https://www.donotdistrb.com/*`) and development origins that connects automatically with no manual configuration or extension ID copying required.
+5. **Instant Active Tab Deflection:** If you start a focus session while distracting tabs (like a playing YouTube video) are already open, the background service worker immediately detects and redirects them without needing a page refresh.
 
 ---
 
@@ -16,14 +17,11 @@ This Chromium browser extension (Manifest V3) enables real browser-level website
 1. Open **`chrome://extensions`** (or `edge://extensions` / `brave://extensions`) in your browser.
 2. Turn ON the **Developer mode** toggle switch in the top-right corner.
 3. Click the **Load unpacked** button in the top-left corner.
-4. Select the `extension` directory located inside this project:
-   ```
-   c:\Users\USER\Documents\Projects\[frontend]\Personal\do-not-disturb\extension
-   ```
-5. Return to the Do Not Disturb app at [http://localhost:3000/blocklist](http://localhost:3000/blocklist).
+4. Select the `extension` directory (or unzipped package).
+5. Return to the Do Not Disturb app at `https://www.donotdistrb.com` (or `http://localhost:3000/blocklist` locally).
 6. The status banner will instantly switch to **"Browser Extension Connected"**!
 
-> **Note on updating the extension:** Whenever changes are made to files in `extension/`, click the small **Reload** (circular arrow) icon on the extension card in `chrome://extensions` to reload the updated extension files into your browser.
+> **Updating an existing installation:** Because Developer Mode extensions do not auto-update, whenever an update is released, replace your folder files and click the circular **Reload** (🔄) button on the extension card in `chrome://extensions`.
 
 ---
 

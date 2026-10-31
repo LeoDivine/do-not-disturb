@@ -3,7 +3,7 @@
 	"name": "Do Not Disturb — Focus Guard",
 	"version": "1.0.0",
 	"description": "Companion browser extension for Do Not Disturb to deflect distracting websites during focus sessions.",
-	"permissions": ["declarativeNetRequest", "storage", "alarms"],
+	"permissions": ["declarativeNetRequest", "storage", "alarms", "tabs"],
 	"host_permissions": ["<all_urls>"],
 	"background": {
 		"service_worker": "background.js"
@@ -55,8 +55,20 @@
 				"http://127.0.0.1:5173/*",
 				"http://127.0.0.1:4173/*",
 				"http://127.0.0.1:8080/*",
-				"https://do-not-disturb.vercel.app/",
-				"https://donotdistrb.com/"
+				"https://do-not-disturb.vercel.app/*",
+				"http://do-not-disturb.vercel.app/*",
+				"https://donotdistrb.com/*",
+				"https://www.donotdistrb.com/*",
+				"http://donotdistrb.com/*",
+				"http://www.donotdistrb.com/*",
+				"https://*.donotdistrb.com/*",
+				"http://*.donotdistrb.com/*",
+				"https://donotdisturb.com/*",
+				"https://www.donotdisturb.com/*",
+				"http://donotdisturb.com/*",
+				"http://www.donotdisturb.com/*",
+				"https://*.donotdisturb.com/*",
+				"http://*.donotdisturb.com/*"
 			],
 			"js": ["content.js"],
 			"run_at": "document_start"
@@ -92,8 +104,20 @@
 			"http://127.0.0.1:5173/*",
 			"http://127.0.0.1:4173/*",
 			"http://127.0.0.1:8080/*",
-			"https://do-not-disturb.vercel.app/",
-			"https://donotdistrb.com/"
+			"https://do-not-disturb.vercel.app/*",
+			"http://do-not-disturb.vercel.app/*",
+			"https://donotdistrb.com/*",
+			"https://www.donotdistrb.com/*",
+			"http://donotdistrb.com/*",
+			"http://www.donotdistrb.com/*",
+			"https://*.donotdistrb.com/*",
+			"http://*.donotdistrb.com/*",
+			"https://donotdisturb.com/*",
+			"https://www.donotdisturb.com/*",
+			"http://donotdisturb.com/*",
+			"http://www.donotdisturb.com/*",
+			"https://*.donotdisturb.com/*",
+			"http://*.donotdisturb.com/*"
 		]
 	},
 	"web_accessible_resources": [

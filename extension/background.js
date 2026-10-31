@@ -5,7 +5,8 @@
 
 const RULE_BASE_ID = 1000;
 const SESSION_ALARM = "dnd_session_expiry";
-const DEFAULT_REDIRECT = "http://localhost:3000/blocked";
+const PRODUCTION_ORIGIN = "https://www.donotdistrb.com";
+const DEFAULT_REDIRECT = `${PRODUCTION_ORIGIN}/blocked`;
 
 // State cache
 let currentState = {
@@ -14,17 +15,41 @@ let currentState = {
   ruleCount: 0,
   blockedDomains: [],
   redirectUrl: DEFAULT_REDIRECT,
+  appOrigin: PRODUCTION_ORIGIN,
 };
+
+// Helper to record and persist active web app origin dynamically
+async function recordActiveOrigin(urlOrOrigin) {
+  if (!urlOrOrigin || typeof urlOrOrigin !== "string") return;
+  try {
+    const parsed = new URL(urlOrOrigin);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      const origin = parsed.origin;
+      currentState.appOrigin = origin;
+      const redirect = `${origin}/blocked`;
+      if (!currentState.isBlockingActive || currentState.redirectUrl.includes("localhost")) {
+        currentState.redirectUrl = redirect;
+      }
+      await chrome.storage.local.set({
+        dnd_app_origin: origin,
+        dnd_redirect: currentState.redirectUrl || redirect,
+      });
+    }
+  } catch {}
+}
 
 // Initialize from storage on startup
 async function init() {
   try {
-    const data = await chrome.storage.local.get(["dnd_session", "dnd_blocking", "dnd_domains", "dnd_redirect"]);
+    const data = await chrome.storage.local.get(["dnd_session", "dnd_blocking", "dnd_domains", "dnd_redirect", "dnd_app_origin"]);
     const session = data.dnd_session;
     const now = Date.now();
     const isRunning = session && session.status === "running" && session.endsAt && session.endsAt > now;
 
+    currentState.appOrigin = data.dnd_app_origin || PRODUCTION_ORIGIN;
+
     if (!isRunning) {
+      currentState.redirectUrl = data.dnd_redirect || DEFAULT_REDIRECT;
       // Only purge if blocking was previously active or rules exist to avoid redundant startup I/O
       if (data && data.dnd_blocking) {
         console.log("[DND Extension] No running session active on init. Purging active blocking rules.");
@@ -93,7 +118,7 @@ async function clearBlockingRules() {
 
 function getSafeRedirectUrl(candidateUrl) {
   const fallback = chrome.runtime.getURL("blocked.html");
-  if (!candidateUrl || typeof candidateUrl !== "string") return fallback;
+  if (!candidateUrl || typeof candidateUrl !== "string") return currentState.redirectUrl || fallback;
   try {
     const parsed = new URL(candidateUrl);
     // Allow extension internal page
@@ -106,13 +131,13 @@ function getSafeRedirectUrl(candidateUrl) {
     if (isLocal && (parsed.protocol === "http:" || parsed.protocol === "https:")) {
       return candidateUrl;
     }
-    // For hosted web app, require HTTPS and strictly /blocked path
-    if (parsed.protocol === "https:" && parsed.pathname.startsWith("/blocked")) {
+    // For hosted web app, require HTTPS or HTTP and strictly /blocked path
+    if ((parsed.protocol === "https:" || parsed.protocol === "http:") && parsed.pathname.startsWith("/blocked")) {
       return candidateUrl;
     }
-    return fallback;
+    return currentState.redirectUrl || fallback;
   } catch {
-    return fallback;
+    return currentState.redirectUrl || fallback;
   }
 }
 
@@ -157,6 +182,46 @@ async function applyBlockingRules(domains, redirectUrl = DEFAULT_REDIRECT) {
       removeRuleIds,
       addRules,
     });
+
+    // 5. Instantly deflect any currently open tabs matching blocked domains
+    try {
+      if (chrome.tabs && chrome.tabs.query && activeTargets.length > 0) {
+        const tabs = await chrome.tabs.query({});
+        for (const tab of tabs) {
+          if (!tab.url || !tab.id) continue;
+          try {
+            const tabUrl = new URL(tab.url);
+            if (tabUrl.protocol !== "http:" && tabUrl.protocol !== "https:") continue;
+            const tabHost = tabUrl.hostname.toLowerCase().replace(/^www\./, "");
+            
+            // Never deflect app/internal hosts
+            if (
+              tabHost === "localhost" ||
+              tabHost === "127.0.0.1" ||
+              tabHost === "[::1]" ||
+              tabHost.endsWith(".donotdistrb.com") ||
+              tabHost === "donotdistrb.com" ||
+              tabHost.endsWith(".donotdisturb.com") ||
+              tabHost === "donotdisturb.com"
+            ) {
+              continue;
+            }
+
+            const matched = activeTargets.find((target) => {
+              const targetHost = target.hostname.toLowerCase().trim().replace(/^www\./, "");
+              return tabHost === targetHost || tabHost.endsWith(`.${targetHost}`);
+            });
+
+            if (matched) {
+              const deflectUrl = `${destinationUrl}?blocked=${encodeURIComponent(matched.hostname.replace(/^www\./, ""))}`;
+              chrome.tabs.update(tab.id, { url: deflectUrl }).catch(() => {});
+            }
+          } catch {}
+        }
+      }
+    } catch (tabErr) {
+      console.warn("[DND Extension] Active tab deflection notice:", tabErr);
+    }
 
     currentState.isBlockingActive = addRules.length > 0;
     currentState.ruleCount = addRules.length;
@@ -233,7 +298,24 @@ function getStatus() {
 async function handleMessage(message, sender) {
   if (!message || !message.type) return null;
 
+  // Auto-record origin from sender if available
+  const detectedUrl = message._senderUrl || (sender && sender.url) || null;
+  if (detectedUrl) {
+    recordActiveOrigin(detectedUrl);
+  }
+
   switch (message.type) {
+    case "DND_REGISTER_ORIGIN": {
+      if (message.origin) {
+        await recordActiveOrigin(message.origin);
+      }
+      return {
+        type: "DND_ACK",
+        requestId: message.requestId,
+        success: true,
+      };
+    }
+
     case "DND_PING":
       return {
         type: "DND_PONG",
@@ -260,10 +342,14 @@ async function handleMessage(message, sender) {
         };
       }
 
+      if (message.redirectUrl) {
+        recordActiveOrigin(message.redirectUrl);
+      }
+
       const result = await syncSession(
         message.session,
         message.domains || [],
-        message.redirectUrl || DEFAULT_REDIRECT,
+        message.redirectUrl || currentState.redirectUrl || DEFAULT_REDIRECT,
         Boolean(message.explicitAction)
       );
       return {
