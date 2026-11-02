@@ -71,16 +71,18 @@ flowchart TD
 
 ### 3.1 XP Earning Rules
 
-Every completed focus interval awards Flow XP based on four key factors:
+Focus intervals award Flow XP based on elapsed focus time and full-session completion bonuses:
 
 | Trigger | XP Awarded | Description |
 | :--- | :--- | :--- |
-| **Focused Time** | $+10\text{ XP}$ per minute | Granted for every elapsed minute of completed deep work. |
-| **Target Reached** | $+50\text{ XP}$ bonus | Awarded for completing a full planned session without early cancellation. |
-| **Serene Silence** | $+35\text{ XP}$ bonus | Granted when a session completes with zero deflected distraction attempts. |
-| **Zen Shield Pulses** | $+15\text{ XP}$ per deflection | Rewards resilience each time the browser extension blocks an impulsive tab attempt. |
-| **Habit Momentum** | $+5\text{ to } 50\text{ XP}$ bonus | Scaled reward for active daily streak cadences ($\ge 3$ consecutive days). |
-| **Milestone Unlocks** | $+50\text{ to } 1,200\text{ XP}$ | One-time bonuses upon reaching milestones and achievements. |
+| **Focused Time** | $+10\text{ XP}$ per minute | Granted for every elapsed minute of focused work ($\ge 60\text{s}$), including sessions ended early. |
+| **Target Reached** | $+50\text{ XP}$ bonus | Awarded strictly when completing a full planned session without early cancellation. |
+| **Serene Silence** | $+35\text{ XP}$ bonus | Granted when a full session completes with zero deflected distraction attempts. |
+| **Zen Shield Pulses** | $+15\text{ XP}$ per deflection | Awarded on completed sessions for each impulsive tab attempt blocked by the browser extension. |
+| **Habit Momentum** | $+5\text{ to } 50\text{ XP}$ bonus | Scaled reward on completed sessions for active daily streak cadences ($\ge 3$ consecutive days). |
+| **Milestone Unlocks** | $+50\text{ to } 1,200\text{ XP}$ | One-time bonuses evaluated and unlocked strictly upon completing a full focus session. |
+
+> **Partial (Ended-Early) Sessions:** If a user resets or skips a focus session after at least 60 seconds, they receive **only** the base $+10\text{ XP/min}$ for the time spent focusing. All completion/shield/streak bonuses, milestone unlocks, rest token accruals, and the post-session celebration modal are strictly gated behind full session completion (`statusSuccess === true`).
 
 ### 3.2 Level Curve & Flow Titles
 

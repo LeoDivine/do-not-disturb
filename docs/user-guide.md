@@ -97,9 +97,9 @@ When a focus or break interval reaches zero, Do Not Disturb sounds an acoustic m
 Do Not Disturb provides an intrinsic, mindful progression system designed to celebrate deep work without anxiety or cluttered game elements.
 
 ### 5.1 Flow XP & Levels
-- **Earning XP**: You earn $+10\text{ XP}$ per minute focused, $+50\text{ XP}$ when finishing a full sprint, $+35\text{ XP}$ for zero-distraction sessions, and $+15\text{ XP}$ for each deflection absorbed.
+- **Earning XP**: You earn $+10\text{ XP}$ per minute focused (including partial credit if you stop a session early after at least 1 minute). Completing a full focus sprint additionally awards $+50\text{ XP}$ for reaching your target, $+35\text{ XP}$ for zero-distraction sessions, $+15\text{ XP}$ per deflection absorbed, and streak cadence bonuses.
 - **Level Titles**: Advance through calm flow tiers (e.g. *Level 1 Novice Focus*, *Level 2 Calm Observer*, *Level 3 Mindful Pacer*, up to *Level 30+ Zen Master*).
-- **Post-Session Celebration**: Completing a focus sprint brings up a gentle summary dialog showing your earned focus points, streak status, and newly unlocked milestones.
+- **Post-Session Celebration**: Completing a full focus sprint brings up a gentle summary dialog showing your earned focus points, streak status, and newly unlocked milestones (sessions ended early quietly log partial time XP without interrupting you).
 
 ### 5.2 The Zen Bonsai Garden
 On the main dashboard (`/`), you can toggle the visualizer between the **Arc View** and the **Zen Garden**:

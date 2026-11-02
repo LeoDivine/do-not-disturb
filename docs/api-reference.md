@@ -334,3 +334,99 @@ Streams the compiled browser extension archive as a downloadable attachment.
 
 #### Response
 Binary ZIP stream of the `extension/` directory.
+
+---
+
+## 5. Live Timer Telemetry Endpoint
+
+### 5.1 Report Active Timer Status
+Reports real-time timer state transitions (`start`, `pause`, `heartbeat`, `stop`) for the Superadmin live feed. Supports both authenticated Cloud Sync users and zero-PII ephemeral local guest sessions (`ephemeralGuestId` scoped to `sessionStorage`). Raw focus goals/intent strings are never transmitted; only a boolean `hasAnchor` indicator is sent.
+
+- **Method**: `POST`
+- **Path**: `/api/timer/status`
+- **Content-Type**: `application/json`
+
+#### Request Body
+```json
+{
+  "action": "start",
+  "mode": "focus",
+  "isRunning": true,
+  "plannedSeconds": 1500,
+  "remainingSeconds": 1485,
+  "endsAt": 1762086000000,
+  "cycle": 1,
+  "totalCycles": 4,
+  "hasAnchor": true,
+  "ephemeralGuestId": "anon_8f3k9a1b"
+}
+```
+
+#### Response (200 OK)
+```json
+{
+  "ok": true,
+  "synced": true,
+  "active": true
+}
+```
+
+---
+
+## 6. Superadmin Telemetry & Maintenance Endpoints
+
+All `/api/admin/*` endpoints require an authenticated session whose email matches `SUPERADMIN_EMAIL` or `SUPERADMIN_EMAILS` via `getSuperAdminUser()`.
+
+### 6.1 Fetch Superadmin Platform Telemetry
+Returns real-time active timer sessions (Signed-In + Local Guests), user growth & retention metrics (DAU/WAU/MAU, activation rate, 14-day trend), productivity health (protocols, 24h rhythm, completion rate), `k`-anonymized global blocker leaderboard, zero-PII sensory/visualizer adoption, storage hygiene counts, and the user directory.
+
+- **Method**: `GET`
+- **Path**: `/api/admin`
+
+#### Error Codes
+- `403 Forbidden`: Caller is not authenticated as a configured Superadmin.
+
+---
+
+### 6.2 Prune Orphaned & Stale Records
+Deletes unlinked (`userId: null`) finished session records, unlinked deflection/blocklist rows, expired `RUNNING` sessions (>2 minutes past `endsAt`), and stale `PAUSED` timers (>1 hour untouched).
+
+- **Method**: `POST`
+- **Path**: `/api/admin`
+- **Content-Type**: `application/json`
+
+#### Request Body
+```json
+{
+  "action": "prune_orphaned"
+}
+```
+
+#### Response (200 OK)
+```json
+{
+  "success": true,
+  "prunedCount": 4
+}
+```
+
+---
+
+### 6.3 Delete User Account
+Permanently deletes a non-superadmin user account and all associated focus sessions, blocklists, settings, shortcuts, streaks, and gamification records. Superadmin accounts are protected and cannot be deleted through this endpoint.
+
+- **Method**: `DELETE`
+- **Path**: `/api/admin/users/[id]`
+
+#### Response (200 OK)
+```json
+{
+  "success": true,
+  "deletedUserId": "cm4abc1230000xyz"
+}
+```
+
+#### Error Codes
+- `400 Bad Request`: Attempted to delete own account or a protected Superadmin account.
+- `403 Forbidden`: Caller is not a Superadmin.
+- `404 Not Found`: Target user ID does not exist.

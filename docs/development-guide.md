@@ -28,6 +28,11 @@ AUTH_SECRET="dnd-development-secret-key-change-in-prod-focus-app-2026"
 
 # Public application URL
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
+
+# Superadmin email allowlist for /admin access
+SUPERADMIN_EMAIL="admin@example.com"
+# Optional comma-separated list of additional superadmin emails
+SUPERADMIN_EMAILS="admin@example.com"
 ```
 
 > **Note:** If using a managed database provider requiring SSL, append `?sslmode=require` to `DATABASE_URL`.
@@ -182,6 +187,7 @@ pnpm prisma:deploy
    - `DATABASE_URL`: Production PostgreSQL connection string.
    - `AUTH_SECRET`: Strong 64-character random string.
    - `NEXT_PUBLIC_APP_URL`: Production canonical domain (`https://www.donotdistrb.com`).
+   - `SUPERADMIN_EMAIL` (and optional `SUPERADMIN_EMAILS`): Authorized email address(es) for `/admin` access.
 4. Set build command: `pnpm prisma:generate && next build`.
 5. Deploy.
 

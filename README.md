@@ -10,6 +10,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 - **[Documentation Hub](docs/README.md)**: Main documentation index and navigation guide.
 - **[System Architecture](docs/architecture.md)**: Technical architecture, component interactions, Web Audio synthesis, and state synchronization.
+- **[Superadmin Telemetry Guide](docs/superadmin-guide.md)**: Privacy-first `/admin` command center, live timer pulse, `k`-anonymity safeguards, and storage hygiene.
 - **[Companion Extension Guide](docs/extension-guide.md)**: Chromium MV3 extension architecture, `declarativeNetRequest` rules engine, installation, and debugging.
 - **[REST API Reference](docs/api-reference.md)**: Full API specifications for authentication, data synchronization, and assets.
 - **[Database Schema & Models](docs/database-schema.md)**: PostgreSQL models, relations, enums, indexes, and migrations with Prisma ORM 7.
