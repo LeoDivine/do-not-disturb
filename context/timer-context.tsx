@@ -366,6 +366,61 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
+  // Helper to report live timer status to server for Superadmin real-time telemetry (privacy-first)
+  const reportServerTimerStatus = useCallback(
+    (
+      action: "start" | "pause" | "heartbeat" | "stop",
+      running: boolean,
+      currentMode: SessionMode,
+      endsAt: number | null,
+      remaining: number,
+      planned?: number
+    ) => {
+      if (typeof window === "undefined") return;
+      if (window.location.pathname.startsWith("/blocked")) return;
+
+      const totalDuration =
+        planned || (durationsRef.current ? durationsRef.current[currentMode] : 25 * 60);
+      const anchor = localStorage.getItem("dnd_primary_anchor") || "";
+      const intent = localStorage.getItem("dnd_session_intent") || "";
+      const hasAnchor = Boolean(anchor.trim() || intent.trim());
+      const currentCycle = cycleRef.current || 1;
+      const currentTotalCycles = totalCyclesRef.current || 4;
+
+      // Ephemeral browser-scoped token for anonymous local-only timer count (never persisted in cookies)
+      let ephemeralGuestId = "";
+      try {
+        ephemeralGuestId =
+          localStorage.getItem("dnd_ephemeral_pulse_id") ||
+          sessionStorage.getItem("dnd_ephemeral_pulse_id") ||
+          "";
+        if (!ephemeralGuestId) {
+          ephemeralGuestId = `anon_${Math.random().toString(36).slice(2, 10)}`;
+          localStorage.setItem("dnd_ephemeral_pulse_id", ephemeralGuestId);
+          sessionStorage.setItem("dnd_ephemeral_pulse_id", ephemeralGuestId);
+        }
+      } catch {}
+
+      fetch("/api/timer/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          mode: currentMode,
+          isRunning: running,
+          plannedSeconds: totalDuration,
+          remainingSeconds: remaining,
+          endsAt,
+          cycle: currentCycle,
+          totalCycles: currentTotalCycles,
+          hasAnchor,
+          ephemeralGuestId,
+        }),
+      }).catch(() => {});
+    },
+    []
+  );
+
   // Helper to safely sync with browser extension
   const dispatchExtensionSync = useCallback(
     (running: boolean, currentMode: SessionMode, endsAt: number | null, remaining: number) => {
@@ -534,8 +589,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       setSettings(newSettings);
       const newDurations = getModeDurations(newSettings);
 
-      // If timer is not currently running, immediately update duration to reflect the new setting
-      if (!isRunningRef.current) {
+      // If timer is completely idle at full duration, immediately update duration to reflect the new setting
+      if (!isRunningRef.current && secondsLeftRef.current >= totalSecondsRef.current) {
         const curMode = modeRef.current;
         const newDur = newDurations[curMode];
         setTotalSeconds(newDur);
@@ -590,8 +645,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
       if (saved.isRunning && saved.endsAt && saved.endsAt > now) {
         const remaining = Math.max(0, Math.ceil((saved.endsAt - now) / 1000));
+        const planned = saved.totalSeconds || fallbackDuration;
         setModeState(targetMode);
-        setTotalSeconds(saved.totalSeconds || fallbackDuration);
+        setTotalSeconds(planned);
         setSecondsLeft(remaining);
         setIsRunning(true);
         endsAtRef.current = saved.endsAt;
@@ -599,6 +655,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setCycle(effectiveCycle);
         cycleRef.current = effectiveCycle;
         applyModeAttribute(targetMode);
+        reportServerTimerStatus("heartbeat", true, targetMode, saved.endsAt, remaining, planned);
       } else if (saved.isRunning && saved.endsAt && saved.endsAt <= now) {
         // Session ended while the tab was hidden, suspended, or closed: record it so it's not lost!
         if (targetMode === "focus") {
@@ -650,16 +707,23 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         };
         persistAndBroadcast(newState);
         dispatchExtensionSync(false, nextMode, null, nextDuration);
+        reportServerTimerStatus("stop", false, nextMode, null, nextDuration, nextDuration);
       } else {
+        const planned = saved.totalSeconds || fallbackDuration;
+        const remaining = saved.secondsLeft ?? fallbackDuration;
         setModeState(targetMode);
-        setTotalSeconds(saved.totalSeconds || fallbackDuration);
-        setSecondsLeft(saved.secondsLeft ?? fallbackDuration);
+        setTotalSeconds(planned);
+        setSecondsLeft(remaining);
         setIsRunning(false);
         endsAtRef.current = null;
         sessionIdRef.current = saved.sessionId;
         setCycle(effectiveCycle);
         cycleRef.current = effectiveCycle;
         applyModeAttribute(targetMode);
+
+        if (remaining < planned && remaining > 0) {
+          reportServerTimerStatus("pause", false, targetMode, null, remaining, planned);
+        }
 
         if (isPreviousDay) {
           persistAndBroadcast({
@@ -744,8 +808,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       };
       persistAndBroadcast(newState);
       dispatchExtensionSync(false, newMode, null, duration);
+      reportServerTimerStatus("stop", false, newMode, null, duration, duration);
     },
-    [checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync]
+    [checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync, reportServerTimerStatus]
   );
 
   // Accurate countdown timer loop with timestamp reconciliation & automation support
@@ -849,6 +914,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           };
           persistAndBroadcast(newState);
           dispatchExtensionSync(true, nextMode, newEndsAt, nextDuration);
+          reportServerTimerStatus("start", true, nextMode, newEndsAt, nextDuration, nextDuration);
         } else {
           endsAtRef.current = null;
           sessionIdRef.current = null;
@@ -870,6 +936,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             extensionClient.stopSession();
           }
           dispatchExtensionSync(false, nextMode, null, nextDuration);
+          reportServerTimerStatus("stop", false, nextMode, null, nextDuration, nextDuration);
         }
       } else {
         setSecondsLeft(remainingSecs);
@@ -877,7 +944,35 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 500);
 
     return () => clearInterval(interval);
-  }, [isRunning, mode, totalSeconds, persistAndBroadcast, dispatchExtensionSync]);
+  }, [isRunning, mode, totalSeconds, persistAndBroadcast, dispatchExtensionSync, reportServerTimerStatus]);
+
+  // Immediate + periodic 15s server heartbeat while timer is running or paused mid-session
+  const isPausedMidSession = !isRunning && secondsLeft < totalSeconds && secondsLeft > 0;
+  useEffect(() => {
+    if (!isRunning && !isPausedMidSession) return;
+
+    const sendHeartbeat = () => {
+      const curRemaining =
+        isRunningRef.current && endsAtRef.current
+          ? Math.max(0, Math.ceil((endsAtRef.current - Date.now()) / 1000))
+          : secondsLeftRef.current;
+
+      reportServerTimerStatus(
+        "heartbeat",
+        isRunningRef.current,
+        modeRef.current,
+        endsAtRef.current,
+        curRemaining,
+        totalSecondsRef.current
+      );
+    };
+
+    // Report immediately when effect activates (e.g. page load, tab sync, or hot reload)
+    sendHeartbeat();
+
+    const hb = setInterval(sendHeartbeat, 15000);
+    return () => clearInterval(hb);
+  }, [isRunning, isPausedMidSession, mode, totalSeconds, reportServerTimerStatus]);
 
   const startTimer = useCallback(() => {
     checkDailyCycleReset();
@@ -900,7 +995,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     };
     persistAndBroadcast(newState);
     dispatchExtensionSync(true, mode, newEndsAt, secondsLeftRef.current);
-  }, [mode, totalSeconds, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync]);
+    reportServerTimerStatus("start", true, mode, newEndsAt, secondsLeftRef.current, totalSeconds);
+  }, [mode, totalSeconds, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync, reportServerTimerStatus]);
 
   const pauseTimer = useCallback(() => {
     checkDailyCycleReset();
@@ -925,7 +1021,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     };
     persistAndBroadcast(newState);
     dispatchExtensionSync(false, mode, null, remainingSecs);
-  }, [mode, totalSeconds, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync]);
+    reportServerTimerStatus("pause", false, mode, null, remainingSecs, totalSeconds);
+  }, [mode, totalSeconds, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync, reportServerTimerStatus]);
 
   const toggleTimer = useCallback(() => {
     if (isRunning) {
@@ -974,8 +1071,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       extensionClient.stopSession();
       dispatchExtensionSync(false, mode, null, duration);
+      reportServerTimerStatus("stop", false, mode, null, duration, duration);
     }
-  }, [mode, totalSeconds, isRunning, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync]);
+  }, [mode, totalSeconds, isRunning, checkDailyCycleReset, persistAndBroadcast, dispatchExtensionSync, reportServerTimerStatus]);
 
   const skipTimer = useCallback(() => {
     checkDailyCycleReset();
@@ -1016,12 +1114,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       extensionClient.stopSession();
       dispatchExtensionSync(false, nextMode, null, nextDuration);
+      reportServerTimerStatus("stop", false, nextMode, null, nextDuration, nextDuration);
     }
 
     setMode(nextMode);
     setSecondsLeft(nextDuration);
     setTotalSeconds(nextDuration);
-  }, [mode, totalSeconds, isRunning, checkDailyCycleReset, setMode, persistAndBroadcast, dispatchExtensionSync]);
+  }, [mode, totalSeconds, isRunning, checkDailyCycleReset, setMode, persistAndBroadcast, dispatchExtensionSync, reportServerTimerStatus]);
 
   const formatTime = useCallback((secs: number = secondsLeft) => {
     const m = Math.floor(secs / 60);

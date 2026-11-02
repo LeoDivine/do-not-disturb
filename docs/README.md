@@ -11,6 +11,7 @@ Explore the detailed documentation guides below:
 | Document | Description |
 | :--- | :--- |
 | **[Architecture Guide](architecture.md)** | Technical architecture, data flow, Web Audio synthesis engine, extension bridge, and state synchronization. |
+| **[Superadmin Telemetry Guide](superadmin-guide.md)** | Privacy-first `/admin` command center, live timer pulse (Signed-In + Local Guests), `k`-anonymized blocker stats, and storage hygiene. |
 | **[Gamification & Zen Sanctuary Guide](gamification-guide.md)** | Flow XP engine, levels, compassionate streaks, procedural Zen Bonsai, soundscape unlocks, and milestones. |
 | **[Companion Extension Guide](extension-guide.md)** | Browser extension architecture, `declarativeNetRequest` rules engine, content script bridge, installation, and debugging. |
 | **[API Reference](api-reference.md)** | Full specification of REST API endpoints for authentication, bi-directional data synchronization, and assets. |

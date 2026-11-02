@@ -78,6 +78,7 @@ The user interface is built on Next.js 16 with the App Router model:
 - `app/shortcuts/page.tsx`: Interactive keyboard shortcut configuration page.
 - `app/settings/page.tsx`: User configuration for session lengths, break cadence, blocking strictness, and theme preferences.
 - `app/blocked/page.tsx`: Deflection destination displaying a mindful breathing interface and the time remaining in the current focus block.
+- `app/admin/page.tsx`: Stealth, privacy-first Superadmin Command Center gated by `getSuperAdminUser()` (silently redirecting non-superadmins to `/`).
 
 ### 2.2 React Context Model
 
@@ -88,6 +89,7 @@ State management is separated into distinct single-responsibility React contexts
    - **Daily Cycle Reset Engine**: Persists `cycleDate` (`YYYY-MM-DD`) in `PersistedTimerState`. Automatically resets the focus cycle counter back to `1` every calendar day upon date rollover, initialization from storage, tab focus, or `document.visibilitychange` events.
    - Cross-tab state synchronization via `BroadcastChannel` (`dnd-timer-channel`) and native `StorageEvent` listeners.
    - Emits synchronization events to the browser extension whenever timer state transitions occur.
+   - Dispatches privacy-safe live timer status pings (`start`, `pause`, 30s `heartbeat`, `stop`) to `/api/timer/status` for real-time Superadmin telemetry across signed-in users and ephemeral local guests.
    - Triggers audio notifications and chime playback upon session completion.
 
 2. **`SyncContext` (`context/sync-context.tsx`)**:
@@ -216,3 +218,6 @@ When reconciling client and server state:
 4. **Extension Security**:
    - `externally_connectable` and `content_scripts` origins are strictly scoped to approved application hosts.
    - Content script ignores messages missing the proper `source` and structure.
+5. **Superadmin Authorization & Privacy-First Telemetry**:
+   - Controlled via environment variable allowlisting (`SUPERADMIN_EMAIL` / `SUPERADMIN_EMAILS`) validated on the server via `isSuperAdminEmail()` and `getSuperAdminUser()` in `lib/auth.ts`.
+   - `/admin` is unindexed, omitted from public navigation, and enforces `k`-anonymity (`k >= 2`) on global domain leaderboards, redacts personal focus anchors, and masks user emails by default.

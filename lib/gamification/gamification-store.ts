@@ -193,11 +193,11 @@ function bootstrapFromExistingHistory(base: UserGamificationState): UserGamifica
       }
     }
 
-    if (sessions.length > 0) {
+    const successfulCount = sessions.filter((s) => s.statusSuccess).length;
+    if (successfulCount >= 1) {
       unlockedIds.add("first_spark");
       dates["first_spark"] = dates["first_spark"] || sessions[sessions.length - 1].completedAt || nowIso;
     }
-    const successfulCount = sessions.filter((s) => s.statusSuccess).length;
     if (successfulCount >= 10) {
       unlockedIds.add("steady_cadence");
       dates["steady_cadence"] = nowIso;
@@ -462,7 +462,7 @@ export function processSessionRewards(
   const breakdown: XpBreakdownItem[] = [];
   let totalSessionXp = 0;
 
-  // 1. Base Focus Time XP (+10 XP per minute)
+  // 1. Base Focus Time XP (+10 XP per minute, awarded for both completed and partial sessions)
   const focusMinutes = Math.max(1, Math.floor(session.actualSeconds / 60));
   const timeXp = focusMinutes * 10;
   breakdown.push({
@@ -472,8 +472,11 @@ export function processSessionRewards(
   });
   totalSessionXp += timeXp;
 
-  // 2. Full Target Completion Bonus
+  const deflectionsShielded = session.deflectionsCount || 0;
+
+  // Bonuses are strictly gated behind full session completion (statusSuccess === true)
   if (session.statusSuccess) {
+    // 2. Full Target Completion Bonus
     const completionBonus = 50;
     breakdown.push({
       label: "Target Reached Bonus",
@@ -481,156 +484,155 @@ export function processSessionRewards(
       icon: "target",
     });
     totalSessionXp += completionBonus;
-  }
 
-  // 3. Zero-Distraction Zen Bonus (if completed without deflections)
-  if (session.statusSuccess && session.deflectionsCount === 0) {
-    const zenBonus = 35;
-    breakdown.push({
-      label: "Serene Silence (0 Distractions)",
-      xp: zenBonus,
-      icon: "sparkles",
-    });
-    totalSessionXp += zenBonus;
-  }
+    // 3. Zero-Distraction Zen Bonus (if completed without deflections)
+    if (deflectionsShielded === 0) {
+      const zenBonus = 35;
+      breakdown.push({
+        label: "Serene Silence (0 Distractions)",
+        xp: zenBonus,
+        icon: "sparkles",
+      });
+      totalSessionXp += zenBonus;
+    }
 
-  // 4. Deflection Shield Resilience Bonus (+15 XP per deflection absorbed)
-  const deflectionsShielded = session.deflectionsCount || 0;
-  if (deflectionsShielded > 0) {
-    const shieldXp = deflectionsShielded * 15;
-    breakdown.push({
-      label: `${deflectionsShielded} Distraction${deflectionsShielded > 1 ? "s" : ""} Shielded`,
-      xp: shieldXp,
-      icon: "shield",
-    });
-    totalSessionXp += shieldXp;
-  }
+    // 4. Deflection Shield Resilience Bonus (+15 XP per deflection absorbed)
+    if (deflectionsShielded > 0) {
+      const shieldXp = deflectionsShielded * 15;
+      breakdown.push({
+        label: `${deflectionsShielded} Distraction${deflectionsShielded > 1 ? "s" : ""} Shielded`,
+        xp: shieldXp,
+        icon: "shield",
+      });
+      totalSessionXp += shieldXp;
+    }
 
-  // 5. Streak Momentum Bonus
-  if (streakCount >= 3) {
-    const streakBonus = Math.min(50, streakCount * 5);
-    breakdown.push({
-      label: `${streakCount}-Day Streak Cadence`,
-      xp: streakBonus,
-      icon: "flame",
-    });
-    totalSessionXp += streakBonus;
+    // 5. Streak Momentum Bonus
+    if (streakCount >= 3) {
+      const streakBonus = Math.min(50, streakCount * 5);
+      breakdown.push({
+        label: `${streakCount}-Day Streak Cadence`,
+        xp: streakBonus,
+        icon: "flame",
+      });
+      totalSessionXp += streakBonus;
+    }
   }
 
   // Update total XP and Level
   const newTotalXp = currentState.totalXp + totalSessionXp;
-  const { level: newLevel, currentLevelXp, nextLevelXp } =
-    calculateLevelFromTotalXp(newTotalXp);
-  const leveledUp = newLevel > previousLevel;
-  const levelTitle = getLevelTitle(newLevel);
+  const { level: newLevel } = calculateLevelFromTotalXp(newTotalXp);
 
   // Update Shields Repelled
   const newTotalShields = currentState.totalShieldsRepelled + deflectionsShielded;
 
-  // Fetch session history for milestone and achievement calculations
-  const storedSessions = getStoredSessions();
-  const exists = storedSessions.some((s) => s.id === session.id);
-  const allSessions = exists ? storedSessions : [session, ...storedSessions];
-
-  const totalFocusSeconds = allSessions
-    .filter((s) => s.mode === "focus")
-    .reduce((acc, s) => acc + s.actualSeconds, 0);
-
-  const completedSessions = allSessions.filter(
-    (s) => s.mode === "focus" && s.statusSuccess
-  );
-  const completedCount = completedSessions.length;
-
-  // Check and unlock achievements
-  const allAchievements = getAchievementsWithProgress();
+  // Check and unlock achievements (strictly on completed focus sessions)
   const newlyUnlocked: Achievement[] = [];
   const updatedUnlockedIds = new Set(currentState.unlockedAchievementIds);
   const updatedDates = { ...currentState.unlockedAchievementDates };
-  const nowIso = new Date().toISOString();
-
-  // Evaluate each milestone
-  const checkUnlock = (id: string, condition: boolean) => {
-    if (condition && !updatedUnlockedIds.has(id)) {
-      updatedUnlockedIds.add(id);
-      updatedDates[id] = nowIso;
-      const found = allAchievements.find((a) => a.id === id);
-      if (found) {
-        newlyUnlocked.push({
-          ...found,
-          isUnlocked: true,
-          unlockedAt: nowIso,
-        });
-      }
-    }
-  };
-
-  checkUnlock("first_spark", completedCount >= 1);
-  checkUnlock("zen_intent", Boolean(session.intent || session.goal || (session as any).targetIntent || (session as any).primaryAnchor));
-  checkUnlock("steady_cadence", completedCount >= 10);
-  checkUnlock(
-    "deep_diver",
-    session.actualSeconds >= 2700 && session.statusSuccess
-  );
-  checkUnlock(
-    "endurance_master",
-    session.actualSeconds >= 3600 && session.statusSuccess
-  );
-  checkUnlock(
-    "iron_will",
-    session.statusSuccess && deflectionsShielded === 0 && session.actualSeconds >= 1500
-  );
-  checkUnlock("sprint_veteran", completedCount >= 25);
-  checkUnlock("century_sprint", completedCount >= 100);
-
-  // Daily multi-session checks
   const todayStr = toLocalDateString(new Date());
-  const todayCompletedCount = completedSessions.filter(
-    (s) => (s.completedAt || s.startedAt || "").startsWith(todayStr)
-  ).length;
+
   if (session.statusSuccess) {
+    // Fetch session history for milestone and achievement calculations
+    const storedSessions = getStoredSessions();
+    const exists = storedSessions.some((s) => s.id === session.id);
+    const allSessions = exists ? storedSessions : [session, ...storedSessions];
+
+    const totalFocusSeconds = allSessions
+      .filter((s) => s.mode === "focus")
+      .reduce((acc, s) => acc + s.actualSeconds, 0);
+
+    const completedSessions = allSessions.filter(
+      (s) => s.mode === "focus" && s.statusSuccess
+    );
+    const completedCount = completedSessions.length;
+
+    const allAchievements = getAchievementsWithProgress();
+    const nowIso = new Date().toISOString();
+
+    // Evaluate each milestone
+    const checkUnlock = (id: string, condition: boolean) => {
+      if (condition && !updatedUnlockedIds.has(id)) {
+        updatedUnlockedIds.add(id);
+        updatedDates[id] = nowIso;
+        const found = allAchievements.find((a) => a.id === id);
+        if (found) {
+          newlyUnlocked.push({
+            ...found,
+            isUnlocked: true,
+            unlockedAt: nowIso,
+          });
+        }
+      }
+    };
+
+    checkUnlock("first_spark", completedCount >= 1);
+    checkUnlock(
+      "zen_intent",
+      Boolean(
+        session.intent ||
+          session.goal ||
+          (session as any).targetIntent ||
+          (session as any).primaryAnchor
+      )
+    );
+    checkUnlock("steady_cadence", completedCount >= 10);
+    checkUnlock("deep_diver", session.actualSeconds >= 2700);
+    checkUnlock("endurance_master", session.actualSeconds >= 3600);
+    checkUnlock(
+      "iron_will",
+      deflectionsShielded === 0 && session.actualSeconds >= 1500
+    );
+    checkUnlock("sprint_veteran", completedCount >= 25);
+    checkUnlock("century_sprint", completedCount >= 100);
+
+    // Daily multi-session checks
+    const todayCompletedCount = completedSessions.filter(
+      (s) => (s.completedAt || s.startedAt || "").startsWith(todayStr)
+    ).length;
     checkUnlock("daily_trio", todayCompletedCount >= 3);
     checkUnlock(
       "quad_sprint",
       todayCompletedCount >= 4 || (session.cycle !== undefined && session.cycle >= 4)
     );
     checkUnlock("high_output_five", todayCompletedCount >= 5);
+
+    // Shield milestones
+    checkUnlock("shield_initiate", deflectionsShielded >= 1 || newTotalShields >= 1);
+    checkUnlock("shield_sentinel", newTotalShields >= 10);
+    checkUnlock("digital_fortress", newTotalShields >= 25);
+    checkUnlock("impenetrable_sanctuary", newTotalShields >= 50);
+    checkUnlock("zen_aegis", newTotalShields >= 100);
+    checkUnlock("unshakable_focus", deflectionsShielded >= 3);
+    checkUnlock("serene_clarity", deflectionsShielded >= 5);
+
+    // Time of day & weekend checks
+    const sessionHour = new Date(session.completedAt || session.startedAt).getHours();
+    checkUnlock("early_bird", sessionHour < 8);
+    checkUnlock("noon_oasis", sessionHour >= 12 && sessionHour < 14);
+    checkUnlock("night_owl", sessionHour >= 22);
+
+    const dayOfWeek = new Date().getDay();
+    checkUnlock("weekend_warrior", dayOfWeek === 0 || dayOfWeek === 6);
+
+    // Streak milestones
+    checkUnlock("streak_3", streakCount >= 3);
+    checkUnlock("streak_7", streakCount >= 7);
+    checkUnlock("streak_14", streakCount >= 14);
+    checkUnlock("streak_30", streakCount >= 30);
+
+    // Cumulative hours checks
+    const cumulativeHours = totalFocusSeconds / 3600;
+    checkUnlock("hour_power", cumulativeHours >= 1);
+    checkUnlock("flow_apprentice", cumulativeHours >= 5);
+    checkUnlock("flow_adept", cumulativeHours >= 10);
+    checkUnlock("flow_virtuoso", cumulativeHours >= 50);
+    checkUnlock("centurion", cumulativeHours >= 100);
+
+    // Level milestones
+    checkUnlock("level_5_ascendant", newLevel >= 5);
+    checkUnlock("level_10_ascendant", newLevel >= 10);
   }
-
-  // Shield milestones
-  checkUnlock("shield_initiate", deflectionsShielded >= 1 || newTotalShields >= 1);
-  checkUnlock("shield_sentinel", newTotalShields >= 10);
-  checkUnlock("digital_fortress", newTotalShields >= 25);
-  checkUnlock("impenetrable_sanctuary", newTotalShields >= 50);
-  checkUnlock("zen_aegis", newTotalShields >= 100);
-  checkUnlock("unshakable_focus", deflectionsShielded >= 3 && session.statusSuccess);
-  checkUnlock("serene_clarity", deflectionsShielded >= 5 && session.statusSuccess);
-
-  // Time of day & weekend checks
-  const sessionHour = new Date(session.completedAt || session.startedAt).getHours();
-  checkUnlock("early_bird", sessionHour < 8);
-  checkUnlock("noon_oasis", sessionHour >= 12 && sessionHour < 14 && session.statusSuccess);
-  checkUnlock("night_owl", sessionHour >= 22);
-
-  const dayOfWeek = new Date().getDay();
-  checkUnlock("weekend_warrior", (dayOfWeek === 0 || dayOfWeek === 6) && session.statusSuccess);
-
-  // Streak milestones
-  checkUnlock("streak_3", streakCount >= 3);
-  checkUnlock("streak_7", streakCount >= 7);
-  checkUnlock("streak_14", streakCount >= 14);
-  checkUnlock("streak_30", streakCount >= 30);
-
-  // Cumulative hours checks
-  const cumulativeHours = totalFocusSeconds / 3600;
-  checkUnlock("hour_power", cumulativeHours >= 1);
-  checkUnlock("flow_apprentice", cumulativeHours >= 5);
-  checkUnlock("flow_adept", cumulativeHours >= 10);
-  checkUnlock("flow_virtuoso", cumulativeHours >= 50);
-  checkUnlock("centurion", cumulativeHours >= 100);
-
-  // Level milestones
-  checkUnlock("level_5_ascendant", newLevel >= 5);
-  checkUnlock("level_10_ascendant", newLevel >= 10);
 
   // Calculate bonus XP from newly unlocked achievements
   let achievementBonusXp = 0;
@@ -650,9 +652,14 @@ export function processSessionRewards(
   const finalTotalXp = newTotalXp + achievementBonusXp;
   const finalCalc = calculateLevelFromTotalXp(finalTotalXp);
 
-  // Compassionate rest token accrual: earn 1 token every 5 days of streak
+  // Compassionate rest token accrual: earn 1 token every 5 days of streak (once per completed streak day)
   let currentTokens = currentState.streakTokens;
-  if (streakCount > 0 && streakCount % 5 === 0 && streakCount > 0) {
+  if (
+    session.statusSuccess &&
+    streakCount > 0 &&
+    streakCount % 5 === 0 &&
+    currentState.lastActiveDate !== todayStr
+  ) {
     currentTokens = Math.min(5, currentTokens + 1); // Cap at 5 rest tokens
   }
 
@@ -668,7 +675,7 @@ export function processSessionRewards(
     totalShieldsRepelled: newTotalShields,
     unlockedAchievementIds: Array.from(updatedUnlockedIds),
     unlockedAchievementDates: updatedDates,
-    lastActiveDate: todayStr,
+    lastActiveDate: session.statusSuccess ? todayStr : currentState.lastActiveDate,
   };
 
   saveStoredGamification(updatedState);
@@ -689,8 +696,8 @@ export function processSessionRewards(
     streak: streakCount,
   };
 
-  // Cache latest reward summary for the modal to display immediately
-  if (typeof window !== "undefined") {
+  // Cache latest reward summary and open celebration modal only when session is completed
+  if (typeof window !== "undefined" && session.statusSuccess) {
     try {
       localStorage.setItem("dnd_latest_session_reward", JSON.stringify(summary));
       window.dispatchEvent(

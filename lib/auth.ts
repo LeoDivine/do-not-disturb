@@ -153,6 +153,39 @@ export async function getCurrentUser() {
 }
 
 /**
+ * Checks if a given email address matches the configured SUPERADMIN_EMAIL / SUPERADMIN_EMAILS allowlist.
+ */
+export function isSuperAdminEmail(email?: string | null): boolean {
+	if (!email) return false;
+	const rawList = [
+		process.env.SUPERADMIN_EMAIL || "",
+		process.env.SUPERADMIN_EMAILS || "",
+	]
+		.filter(Boolean)
+		.join(",");
+
+	if (!rawList.trim()) return false;
+
+	const allowedEmails = rawList
+		.split(",")
+		.map((e) => e.trim().toLowerCase())
+		.filter(Boolean);
+
+	return allowedEmails.includes(email.trim().toLowerCase());
+}
+
+/**
+ * Returns the authenticated user only if they are a configured Superadmin, otherwise null.
+ */
+export async function getSuperAdminUser() {
+	const user = await getCurrentUser();
+	if (!user || !isSuperAdminEmail(user.email)) {
+		return null;
+	}
+	return user;
+}
+
+/**
  * Sets the session cookie on the outgoing response headers.
  */
 export async function setSessionCookie(token: string) {

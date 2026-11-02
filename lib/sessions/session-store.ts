@@ -353,7 +353,10 @@ export function recordCompletedSession(params: {
     import("../gamification/gamification-store")
       .then(({ processSessionRewards }) => {
         const stats = getSessionStats();
-        processSessionRewards(newRecord, Math.max(1, stats.currentStreak));
+        processSessionRewards(
+          newRecord,
+          newRecord.statusSuccess ? Math.max(1, stats.currentStreak) : stats.currentStreak
+        );
       })
       .catch((err) => {
         console.warn("Could not process gamification rewards:", err);

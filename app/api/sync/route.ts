@@ -23,7 +23,10 @@ export async function fetchCloudSyncPayload(userId: string): Promise<SyncPayload
       where: { userId },
     }),
     prisma.focusSession.findMany({
-      where: { userId },
+      where: {
+        userId,
+        status: { in: ["COMPLETED", "STOPPED"] },
+      },
       orderBy: { startedAt: "desc" },
       take: 200,
     }),
