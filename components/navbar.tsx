@@ -6,28 +6,19 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useTheme } from "../context/theme-context";
 import { useTimer } from "../context/timer-context";
-import { useExtensionStatus } from "../lib/blocking/use-extension-status";
 import { useCloseOnEscape } from "../lib/overlays/use-close-on-escape";
-import { getStoredBlocklist } from "../lib/blocking/blocklist-store";
-import {
-  getSessionStats,
-  SESSIONS_UPDATED_EVENT,
-  SessionStats,
-  EMPTY_SESSION_STATS,
-} from "../lib/sessions/session-store";
 import SyncButton from "./sync-button";
 import UserNav from "./user-nav";
 import NavbarLevelPill from "./gamification/navbar-level-pill";
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { theme, setTheme, isDark } = useTheme();
+  const { setTheme, isDark } = useTheme();
   const {
     mode,
     setMode,
     colors,
     activeColor,
-    activeContainer,
     activeBorder,
     isRunning,
     secondsLeft,
@@ -39,7 +30,6 @@ export default function Navbar() {
     formatTime,
     toggleMiniWindow,
     isMiniWindowActive,
-    allModeColors,
     settings,
   } = useTimer();
 
@@ -47,31 +37,8 @@ export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const islandRef = useRef<HTMLDivElement | null>(null);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
-  const { isInstalled, isBlockingActive } = useExtensionStatus();
-  const [blockedSitesCount, setBlockedSitesCount] = useState(0);
-  const [stats, setStats] = useState<SessionStats>(EMPTY_SESSION_STATS);
 
-  useEffect(() => {
-    setBlockedSitesCount(getStoredBlocklist().filter((e) => e.active).length);
-    setStats(getSessionStats());
-
-    const handleBlocklistUpdate = () => {
-      setBlockedSitesCount(getStoredBlocklist().filter((e) => e.active).length);
-    };
-
-    const handleSessionsUpdate = () => {
-      setStats(getSessionStats());
-    };
-
-    window.addEventListener("dnd-blocklist-updated" as any, handleBlocklistUpdate);
-    window.addEventListener(SESSIONS_UPDATED_EVENT as any, handleSessionsUpdate);
-    return () => {
-      window.removeEventListener("dnd-blocklist-updated" as any, handleBlocklistUpdate);
-      window.removeEventListener(SESSIONS_UPDATED_EVENT as any, handleSessionsUpdate);
-    };
-  }, []);
-
-  // Close island on click outside or escape key
+  // Close island and mobile menu on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       if (islandRef.current && !islandRef.current.contains(e.target as Node)) {
@@ -126,58 +93,59 @@ export default function Navbar() {
     return pathname.startsWith(href);
   };
 
-  const progressPercent = totalSeconds > 0 ? Math.round(((totalSeconds - secondsLeft) / totalSeconds) * 100) : 0;
+  const progressPercent =
+    totalSeconds > 0 ? Math.round(((totalSeconds - secondsLeft) / totalSeconds) * 100) : 0;
 
   return (
-    <header className="px-4 sm:px-6 md:px-8 py-2.5 sm:py-3.5 border-b sticky top-0 z-40 backdrop-blur-md transition-colors border-[#e2e8f0] dark:border-[#1b2432] bg-white/95 dark:bg-[#0c1017]/95 text-[#0f172a] dark:text-[#f1f5f9]">
-      <div className="max-w-[1360px] mx-auto flex items-center justify-between gap-3 sm:gap-4 flex-nowrap">
-        <div className="flex items-center gap-3 sm:gap-6 lg:gap-8 shrink-0 flex-nowrap">
+    <header className="px-4 sm:px-6 md:px-8 py-3 border-b sticky top-0 z-40 backdrop-blur-md transition-colors border-[#e2e8f0] dark:border-[#1b2432] bg-white/95 dark:bg-[#0c1017]/95 text-[#0f172a] dark:text-[#f1f5f9]">
+      <div className="max-w-[1360px] mx-auto flex items-center justify-between gap-4 flex-nowrap">
+        <div className="flex items-center gap-6 lg:gap-10 shrink-0 flex-nowrap">
           {/* Logo */}
           <Link
             href="/"
-            className="flex items-center shrink-0 group focus-visible:ring-2 focus-visible:outline-none rounded-lg p-0.5 transition-opacity hover:opacity-90"
+            className="flex items-center shrink-0 group focus-visible:ring-2 focus-visible:outline-none rounded p-0.5 transition-opacity hover:opacity-85"
             style={{ outlineColor: "var(--mode-accent)" }}
             aria-label="Do Not Disturb Home"
           >
-            {/* Dark mode logo (white artwork) shown on dark theme */}
             <Image
               src="/logo-dark.png"
               alt="Do Not Disturb"
-              width={180}
-              height={38}
+              width={160}
+              height={34}
               priority
-              className={`${isDark ? "block" : "hidden"} dark:block w-[125px] sm:w-[150px] md:w-[175px] h-auto object-contain shrink-0 transition-transform duration-200 group-hover:scale-[1.02]`}
+              className={`${isDark ? "block" : "hidden"} dark:block w-[120px] sm:w-[140px] md:w-[155px] h-auto object-contain shrink-0`}
             />
-            {/* Light mode logo (black artwork) shown on light theme */}
             <Image
               src="/logo-light.png"
               alt="Do Not Disturb"
-              width={180}
-              height={38}
+              width={160}
+              height={34}
               priority
-              className={`${!isDark ? "block" : "hidden"} dark:hidden w-[125px] sm:w-[150px] md:w-[175px] h-auto object-contain shrink-0 transition-transform duration-200 group-hover:scale-[1.02]`}
+              className={`${!isDark ? "block" : "hidden"} dark:hidden w-[120px] sm:w-[140px] md:w-[155px] h-auto object-contain shrink-0`}
             />
           </Link>
 
-          {/* Actual Page Navigation Links (Desktop & Large Tablets) */}
-          <nav className="hidden lg:flex items-center gap-1 sm:gap-1.5 text-[13.5px] whitespace-nowrap shrink-0 flex-nowrap" aria-label="Primary Navigation">
+          {/* Primary Navigation Links — plain typography without pills or badges */}
+          <nav
+            className="hidden lg:flex items-center gap-6 text-[13.5px] whitespace-nowrap shrink-0 flex-nowrap"
+            aria-label="Primary Navigation"
+          >
             {navItems.map((item) => {
               const active = isLinkActive(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`px-3 sm:px-3.5 py-1.5 rounded-lg transition-all font-medium whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:outline-none hover:scale-[1.02] active:scale-[0.98] ${
+                  className={`py-1 transition-colors whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:outline-none rounded ${
                     active
-                      ? "shadow-sm font-semibold border"
-                      : "text-[#64748b] hover:text-[#0f172a] hover:bg-[#f1f5f9] dark:text-[#7e8c9f] dark:hover:text-white dark:hover:bg-[#141b24]"
+                      ? "font-semibold"
+                      : "font-medium text-[#64748b] hover:text-[#0f172a] dark:text-[#7e8c9f] dark:hover:text-white"
                   }`}
                   style={
                     active
                       ? {
-                          backgroundColor: "var(--mode-container)",
-                          borderColor: "var(--mode-border)",
                           color: "var(--mode-accent)",
+                          outlineColor: "var(--mode-accent)",
                         }
                       : undefined
                   }
@@ -189,149 +157,69 @@ export default function Navbar() {
           </nav>
         </div>
 
-        {/* Right side controls: Dynamic Island Badge, Desktop Widgets, Mobile Hamburger */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 md:gap-3 shrink-0 flex-nowrap">
-          {/* Dynamic Island Status Badge */}
+        {/* Right side controls — minimal, borderless, unboxed */}
+        <div className="flex items-center gap-4 sm:gap-5 shrink-0 flex-nowrap">
+          {/* Minimal Timer Readout Trigger */}
           <div ref={islandRef} className="relative shrink-0">
-            {/* Collapsed Badge Trigger */}
             <button
               type="button"
               onClick={() => setIsIslandOpen((prev) => !prev)}
               aria-expanded={isIslandOpen}
-              aria-label="Toggle live session dynamic island"
-              className={`group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs transition-all duration-300 cursor-pointer select-none whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:outline-none ${
-                isIslandOpen
-                  ? "shadow-md scale-[1.02]"
-                  : "hover:scale-[1.01] hover:shadow-xs active:scale-[0.98]"
-              } ${
-                isDark
-                  ? "bg-[#0b0f17] border-[#1d2634] text-[#7e8c9f] hover:text-white hover:border-[#2a3649]"
-                  : "bg-[#f8fafc] border-[#e2e8f0] text-[#64748b] hover:text-[#0f172a] hover:border-[#cbd5e1]"
+              aria-label="Toggle quick timer controls"
+              className={`group flex items-center gap-1.5 py-1 text-xs transition-colors cursor-pointer select-none whitespace-nowrap shrink-0 focus-visible:ring-2 focus-visible:outline-none rounded ${
+                isIslandOpen || isRunning
+                  ? "text-[#0f172a] dark:text-white"
+                  : "text-[#64748b] hover:text-[#0f172a] dark:text-[#7e8c9f] dark:hover:text-white"
               }`}
-              style={{
-                borderColor: isIslandOpen ? activeBorder : undefined,
-                boxShadow: isIslandOpen
-                  ? `0 0 0 1px ${activeBorder}, 0 6px 20px -4px ${activeColor}25`
-                  : undefined,
-              }}
+              style={{ outlineColor: activeColor }}
             >
-              {/* Live Status Indicator Dot */}
-              <span className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
-                <span
-                  className={`w-2 h-2 rounded-full transition-colors shrink-0 ${
-                    isRunning ? "animate-pulse" : ""
-                  }`}
-                  style={{ backgroundColor: activeColor }}
-                />
-                <span
-                  className="font-mono font-medium transition-colors whitespace-nowrap text-[11.5px] sm:text-xs"
-                  style={{ color: isRunning ? activeColor : undefined }}
-                  suppressHydrationWarning
-                >
-                  {isRunning ? formatTime(secondsLeft) : colors.name}
-                </span>
-              </span>
-
-              <span className="hidden sm:inline opacity-40">•</span>
-              <span className="hidden sm:inline whitespace-nowrap">{blockedSitesCount} sites</span>
-
-              <span className="hidden md:inline opacity-40">•</span>
-              <span className="hidden md:inline whitespace-nowrap">{stats.todayFocusFormatted}</span>
-
-              {/* Dynamic Island Expand Cue */}
-              <svg
-                className={`w-3 h-3 transition-transform duration-300 ml-0.5 opacity-60 group-hover:opacity-100 ${
-                  isIslandOpen ? "rotate-180" : "rotate-0"
+              <span
+                className={`w-1.5 h-1.5 rounded-full transition-colors shrink-0 ${
+                  isRunning ? "animate-pulse" : ""
                 }`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
+                style={{ backgroundColor: activeColor }}
+              />
+              <span
+                className="font-mono font-medium transition-colors whitespace-nowrap text-xs tabular-nums"
+                style={{ color: isRunning ? activeColor : undefined }}
+                suppressHydrationWarning
               >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
+                {formatTime(secondsLeft)}
+              </span>
             </button>
 
-            {/* Expanded Dynamic Island Card (Fully bounded for mobile screens) */}
+            {/* Streamlined Quick Timer Popover */}
             <div
-              className={`absolute right-0 top-full mt-2 w-[calc(100vw-1.5rem)] sm:w-96 max-w-sm rounded-2xl border p-4 sm:p-4.5 shadow-2xl backdrop-blur-2xl transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] z-50 origin-top-right flex flex-col gap-3.5 ${
+              className={`absolute right-0 top-full mt-2.5 w-[calc(100vw-1.5rem)] sm:w-80 rounded-2xl border p-4 shadow-xl backdrop-blur-2xl transition-all duration-200 z-50 origin-top-right flex flex-col gap-3.5 ${
                 isIslandOpen
                   ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
-                  : "opacity-0 scale-95 -translate-y-2 pointer-events-none"
+                  : "opacity-0 scale-95 -translate-y-1 pointer-events-none"
               } ${
                 isDark
                   ? "bg-[#0c1017]/95 border-[#1d2634] text-[#f1f5f9]"
                   : "bg-white/95 border-[#e2e8f0] text-[#0f172a]"
               }`}
-              style={{
-                borderColor: isIslandOpen ? activeBorder : undefined,
-                boxShadow: isDark
-                  ? `0 24px 50px -12px rgba(0,0,0,0.8), 0 0 0 1px ${activeBorder}`
-                  : `0 20px 40px -12px rgba(0,0,0,0.15), 0 0 0 1px ${activeBorder}`,
-              }}
             >
-              {/* 1. Header: Mode Badge & Cycle Step Tracker */}
-              <div className="flex items-center justify-between">
-                <div
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors"
-                  style={{
-                    backgroundColor: isDark ? colors.containerDark : colors.container,
-                    borderColor: activeBorder,
-                    color: activeColor,
-                  }}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${isRunning ? "animate-pulse" : ""}`}
-                    style={{ backgroundColor: activeColor }}
-                  />
-                  <span>{colors.badgeLabel}</span>
-                  <span className="opacity-60 font-normal">
-                    • {isRunning ? "Running" : "Paused"}
-                  </span>
-                </div>
-
-                {/* Cycle Visual Indicator */}
-                <div
-                  className="flex items-center gap-1.5 text-xs text-[#64748b] dark:text-[#7e8c9f]"
-                  title="Daily focus cycle (resets back to 1 every day)"
-                >
-                  <span>Cycle {cycle} of {totalCycles}</span>
-                  <div className="flex items-center gap-1 ml-1" aria-hidden="true">
-                    {Array.from({ length: totalCycles }).map((_, i) => (
-                      <span
-                        key={i}
-                        className="w-1.5 h-1.5 rounded-full transition-colors"
-                        style={{
-                          backgroundColor:
-                            i + 1 <= cycle
-                              ? activeColor
-                              : isDark
-                              ? "#1c2432"
-                              : "#e2e8f0",
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
+              {/* Header: Plain text mode & cycle */}
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold" style={{ color: activeColor }}>
+                  {colors.name}
+                </span>
+                <span className="text-[#64748b] dark:text-[#7e8c9f]">
+                  Cycle {cycle} of {totalCycles}
+                </span>
               </div>
 
-              {/* 2. Hero Countdown & Action Controls */}
-              <div className="flex items-center justify-between gap-3 pt-1">
-                <div>
-                  <div
-                    className="text-3xl font-bold font-mono tracking-tight tabular-nums"
-                    suppressHydrationWarning
-                  >
-                    {formatTime(secondsLeft)}
-                  </div>
-                  <div className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] mt-0.5">
-                    {mode === "focus"
-                      ? "Focusing without distractions"
-                      : "Time to rest and recharge"}
-                  </div>
+              {/* Countdown & Action Controls */}
+              <div className="flex items-center justify-between gap-3">
+                <div
+                  className="text-2xl font-bold font-mono tracking-tight tabular-nums"
+                  suppressHydrationWarning
+                >
+                  {formatTime(secondsLeft)}
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   {/* Play / Pause Button */}
                   <button
                     type="button"
@@ -339,28 +227,20 @@ export default function Navbar() {
                       e.preventDefault();
                       toggleTimer();
                     }}
-                    className="px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-opacity hover:opacity-90 active:scale-95 cursor-pointer"
                     style={{
                       backgroundColor: activeColor,
-                      color: isDark && mode === "focus" ? "#00201d" : isDark && mode === "shortBreak" ? "#082f49" : isDark && mode === "longBreak" ? "#431407" : "#ffffff",
+                      color:
+                        isDark && mode === "focus"
+                          ? "#00201d"
+                          : isDark && mode === "shortBreak"
+                          ? "#082f49"
+                          : isDark && mode === "longBreak"
+                          ? "#431407"
+                          : "#ffffff",
                     }}
                   >
-                    {isRunning ? (
-                      <>
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                          <rect x="6" y="4" width="4" height="16" rx="1" />
-                          <rect x="14" y="4" width="4" height="16" rx="1" />
-                        </svg>
-                        <span>Pause</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                          <polygon points="5 3 19 12 5 21 5 3" />
-                        </svg>
-                        <span>Start</span>
-                      </>
-                    )}
+                    {isRunning ? "Pause" : "Start"}
                   </button>
 
                   {/* Skip Button */}
@@ -370,7 +250,7 @@ export default function Navbar() {
                       e.preventDefault();
                       skipTimer();
                     }}
-                    className="p-2 rounded-xl border text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 border-[#cbd5e1] dark:border-[#222d3d] text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white cursor-pointer active:scale-95"
+                    className="p-1.5 rounded-lg text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/5 text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white cursor-pointer"
                     title="Skip to next session"
                   >
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
@@ -386,21 +266,9 @@ export default function Navbar() {
                       e.preventDefault();
                       toggleMiniWindow();
                     }}
-                    className={`p-2 rounded-xl border text-xs font-medium transition-colors cursor-pointer active:scale-95 ${
-                      isMiniWindowActive
-                        ? "border-current"
-                        : "hover:bg-black/5 dark:hover:bg-white/5 border-[#cbd5e1] dark:border-[#222d3d] text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white"
-                    }`}
-                    style={
-                      isMiniWindowActive
-                        ? {
-                            backgroundColor: isDark ? colors.containerDark : colors.container,
-                            borderColor: activeBorder,
-                            color: activeColor,
-                          }
-                        : undefined
-                    }
-                    title={isMiniWindowActive ? "Close browser mini pop-up" : "Open browser mini pop-up"}
+                    className="p-1.5 rounded-lg text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/5 text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white cursor-pointer"
+                    style={isMiniWindowActive ? { color: activeColor } : undefined}
+                    title={isMiniWindowActive ? "Close mini timer" : "Open mini timer"}
                   >
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
@@ -410,8 +278,8 @@ export default function Navbar() {
                 </div>
               </div>
 
-              {/* 3. Progress Track */}
-              <div className="w-full h-1.5 rounded-sm overflow-hidden bg-[#e2e8f0] dark:bg-[#1c2432]">
+              {/* Progress Track */}
+              <div className="w-full h-1 rounded-sm overflow-hidden bg-[#e2e8f0] dark:bg-[#1c2432]">
                 <div
                   className="h-full rounded-sm transition-all duration-300"
                   style={{
@@ -421,178 +289,49 @@ export default function Navbar() {
                 />
               </div>
 
-              {/* 4. Quick Mode Switcher Segmented Control */}
-              <div
-                className={`grid grid-cols-3 p-1 rounded-xl border text-xs ${
-                  isDark ? "bg-[#080c12] border-[#1c2432]" : "bg-[#f1f5f9] border-[#cbd5e1]"
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => setMode("focus")}
-                  className={`py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                    mode === "focus"
-                      ? isDark
-                        ? "bg-[#004d40] text-[#64ffda] shadow-sm border border-[#00bfa5]/40"
-                        : "bg-white text-[#0f766e] shadow-sm border border-teal-300"
-                      : "text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white"
-                  }`}
-                >
-                  Focus {settings?.deepFocusMinutes ?? 25}m
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("shortBreak")}
-                  className={`py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                    mode === "shortBreak"
-                      ? isDark
-                        ? "bg-[#0c4a6e] text-[#38bdf8] shadow-sm border border-[#0284c7]/40"
-                        : "bg-white text-[#0284c7] shadow-sm border border-sky-200"
-                      : "text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white"
-                  }`}
-                >
-                  Short {settings?.shortBreakMinutes ?? 5}m
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("longBreak")}
-                  className={`py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                    mode === "longBreak"
-                      ? isDark
-                        ? "bg-[#7c2d12] text-[#fb923c] shadow-sm border border-[#ea580c]/40"
-                        : "bg-white text-[#ea580c] shadow-sm border border-orange-200"
-                      : "text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white"
-                  }`}
-                >
-                  Long {settings?.longBreakMinutes ?? 15}m
-                </button>
-              </div>
-
-              {/* 5. Live Platform State & Stats Grid */}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {/* Blocked Sites */}
-                <Link
-                  href="/blocklist"
-                  onClick={() => setIsIslandOpen(false)}
-                  className={`p-2.5 rounded-xl border transition-colors flex items-center justify-between group ${
-                    isDark
-                      ? "bg-[#0b0f17] border-[#1d2634] hover:border-[#2a3649]"
-                      : "bg-[#f8fafc] border-[#e2e8f0] hover:border-[#cbd5e1]"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2 h-2 rounded-full transition-colors shrink-0"
-                      style={{ backgroundColor: activeColor }}
-                    />
-                    <div>
-                      <div className="font-semibold text-[11px]">{blockedSitesCount} Sites</div>
-                      <div className="text-[10px] text-[#64748b] dark:text-[#7e8c9f]" suppressHydrationWarning>
-                        {isBlockingActive ? "Blocking on" : isInstalled ? "Ready" : "Blocked list"}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[11px] opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all">→</span>
-                </Link>
-
-                {/* Focus Time Today */}
-                <Link
-                  href="/statistics"
-                  onClick={() => setIsIslandOpen(false)}
-                  className={`p-2.5 rounded-xl border transition-colors flex items-center justify-between group ${
-                    isDark
-                      ? "bg-[#0b0f17] border-[#1d2634] hover:border-[#2a3649]"
-                      : "bg-[#f8fafc] border-[#e2e8f0] hover:border-[#cbd5e1]"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <svg
-                      className="w-3.5 h-3.5 transition-colors"
-                      style={{ color: activeColor }}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <polyline points="12 6 12 12 16 14" />
-                    </svg>
-                    <div>
-                      <div className="font-semibold text-[11px]">{stats.todayFocusFormatted}</div>
-                      <div className="text-[10px] text-[#64748b] dark:text-[#7e8c9f]">Focused Today</div>
-                    </div>
-                  </div>
-                  <span className="text-[11px] opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all">→</span>
-                </Link>
-              </div>
-
-              {/* 6. Footer: Session Completion & Quick Status */}
-              <div className={`flex items-center justify-between pt-2 border-t text-[11px] ${
-                isDark ? "border-[#1d2634] text-[#7e8c9f]" : "border-[#e2e8f0] text-[#64748b]"
-              }`}>
-                <div className="flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>{stats.completedCount} sessions completed ({stats.completionRate})</span>
-                </div>
-                <span className="text-[10px] opacity-60">Esc to close</span>
+              {/* Minimal Mode Switcher */}
+              <div className="flex items-center justify-between pt-1 border-t border-[#e2e8f0] dark:border-[#1d2634] text-xs">
+                {(
+                  [
+                    { id: "focus", label: `Focus ${settings?.deepFocusMinutes ?? 25}m` },
+                    { id: "shortBreak", label: `Short ${settings?.shortBreakMinutes ?? 5}m` },
+                    { id: "longBreak", label: `Long ${settings?.longBreakMinutes ?? 15}m` },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setMode(item.id)}
+                    className={`py-1 text-[11.5px] transition-colors cursor-pointer ${
+                      mode === item.id
+                        ? "font-semibold"
+                        : "text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white"
+                    }`}
+                    style={mode === item.id ? { color: activeColor } : undefined}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
 
           {/* Desktop Controls (Hidden on mobile & tablet) */}
-          <div className="hidden lg:flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Flow Level & Gamification Pill */}
+          <div className="hidden lg:flex items-center gap-4 shrink-0">
             <NavbarLevelPill />
 
-            {/* Sync status / modal button */}
             <SyncButton />
 
-            {/* Shortcuts button */}
-            <Link
-              href="/shortcuts"
-              title="Keyboard Shortcuts (?)"
-              aria-label="Keyboard Shortcuts"
-              className="w-8 h-8 rounded-xl border flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 hover:bg-[#f1f5f9] dark:hover:bg-[#141b24] text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white border-[#cbd5e1] dark:border-[#222d3d]"
+            {/* Minimal Single-Button Theme Toggle */}
+            <button
+              type="button"
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              className="p-1 text-[#64748b] hover:text-[#0f172a] dark:text-[#7e8c9f] dark:hover:text-white transition-colors cursor-pointer focus-visible:ring-2 focus-visible:outline-none rounded"
             >
-              <svg className="w-4 h-4 transition-transform duration-200 group-hover:scale-110" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="2" y="4" width="20" height="16" rx="2" />
-                <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 16h10" strokeLinecap="round" />
-              </svg>
-            </Link>
-
-            {/* Theme switcher */}
-            <div
-              role="group"
-              aria-label="Theme mode"
-              className="flex items-center p-1 rounded-xl border transition-colors bg-[#f1f5f9] dark:bg-[#141b24] border-[#cbd5e1] dark:border-[#222d3d]"
-            >
-              <button
-                onClick={() => setTheme("dark")}
-                aria-label="Dark mode"
-                className={`p-1.5 rounded-lg transition-all duration-200 hover:scale-110 active:scale-90 focus-visible:ring-2 focus-visible:outline-none ${
-                  theme === "dark"
-                    ? "bg-[#1a2330] shadow-sm"
-                    : "text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white"
-                }`}
-                style={theme === "dark" ? { color: "var(--mode-accent)" } : undefined}
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setTheme("light")}
-                aria-label="Light mode"
-                className={`p-1.5 rounded-lg transition-all duration-200 hover:scale-110 active:scale-90 focus-visible:ring-2 focus-visible:outline-none ${
-                  theme === "light"
-                    ? "bg-white shadow-sm"
-                    : "text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white"
-                }`}
-                style={theme === "light" ? { color: "var(--mode-accent)" } : undefined}
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {isDark ? (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="12" r="5" />
                   <line x1="12" y1="1" x2="12" y2="3" />
                   <line x1="12" y1="21" x2="12" y2="23" />
@@ -603,10 +342,13 @@ export default function Navbar() {
                   <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
                   <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
                 </svg>
-              </button>
-            </div>
+              ) : (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
+            </button>
 
-            {/* User Profile / Guest Component */}
             <UserNav />
           </div>
 
@@ -616,23 +358,18 @@ export default function Navbar() {
             onClick={() => setIsMobileMenuOpen((prev) => !prev)}
             aria-expanded={isMobileMenuOpen}
             aria-label="Toggle navigation menu"
-            className={`lg:hidden p-2 rounded-xl border transition-all cursor-pointer select-none active:scale-95 focus-visible:ring-2 focus-visible:outline-none ${
-              isMobileMenuOpen
-                ? "bg-[#f1f5f9] dark:bg-[#141b24] text-[#0f172a] dark:text-white"
-                : "border-[#cbd5e1] dark:border-[#222d3d] text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white bg-transparent"
-            }`}
+            className="lg:hidden p-1.5 text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white transition-colors cursor-pointer select-none focus-visible:ring-2 focus-visible:outline-none rounded"
             style={{
-              borderColor: isMobileMenuOpen ? activeBorder : undefined,
               color: isMobileMenuOpen ? activeColor : undefined,
             }}
           >
             {isMobileMenuOpen ? (
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             ) : (
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="4" y1="6" x2="20" y2="6" />
                 <line x1="4" y1="12" x2="20" y2="12" />
                 <line x1="4" y1="18" x2="20" y2="18" />
@@ -642,14 +379,14 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* Mobile Navigation Drawer / Dropdown Panel */}
+      {/* Mobile Navigation Drawer */}
       {isMobileMenuOpen && (
         <div
           ref={mobileMenuRef}
-          className="lg:hidden absolute top-full left-0 w-full border-b backdrop-blur-2xl transition-all duration-300 z-50 shadow-2xl bg-white/98 dark:bg-[#0c1017]/98 border-[#e2e8f0] dark:border-[#1d2634] p-4 sm:p-5 flex flex-col gap-4 animate-in slide-in-from-top-2"
+          className="lg:hidden absolute top-full left-0 w-full border-b backdrop-blur-2xl transition-all duration-200 z-50 shadow-xl bg-white/98 dark:bg-[#0c1017]/98 border-[#e2e8f0] dark:border-[#1d2634] px-4 py-4 sm:px-6 flex flex-col gap-3"
         >
-          {/* Main Navigation Links */}
-          <nav className="grid grid-cols-2 gap-2 text-sm" aria-label="Mobile Navigation">
+          {/* Main Navigation Links — plain list without pills */}
+          <nav className="flex flex-col gap-1 text-sm" aria-label="Mobile Navigation">
             {navItems.map((item) => {
               const active = isLinkActive(item.href);
               return (
@@ -657,119 +394,54 @@ export default function Navbar() {
                   key={item.href}
                   href={item.href}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className={`px-3.5 py-2.5 rounded-xl transition-all font-medium flex items-center justify-between border ${
+                  className={`py-2 transition-colors flex items-center justify-between ${
                     active
-                      ? "shadow-sm font-semibold"
-                      : "border-transparent text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white hover:bg-[#f1f5f9] dark:hover:bg-[#141b24]"
+                      ? "font-semibold"
+                      : "font-medium text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white"
                   }`}
-                  style={
-                    active
-                      ? {
-                          backgroundColor: "var(--mode-container)",
-                          borderColor: "var(--mode-border)",
-                          color: "var(--mode-accent)",
-                        }
-                      : undefined
-                  }
+                  style={active ? { color: "var(--mode-accent)" } : undefined}
                 >
                   <span>{item.label}</span>
-                  {active && (
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: activeColor }}
-                    />
-                  )}
                 </Link>
               );
             })}
           </nav>
 
-          {/* Mobile Flow Level Pill & Gamification */}
-          <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50/70 dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634]">
-            <NavbarLevelPill />
-            <div className="text-xs font-mono font-medium" style={{ color: activeColor }}>
-              {stats.todayFocusFormatted} today
-            </div>
-          </div>
-
-          {/* Quick Controls Row in Mobile Menu: Sync, Theme & User */}
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#e2e8f0] dark:border-[#1d2634]">
-            {/* Sync Button */}
-            <div className="flex-1">
+          {/* Minimal Controls Row */}
+          <div className="flex items-center justify-between gap-4 pt-3 border-t border-[#e2e8f0] dark:border-[#1d2634]">
+            <div className="flex items-center gap-4">
+              <NavbarLevelPill />
               <SyncButton />
             </div>
 
-            {/* Theme switcher */}
-            <div
-              role="group"
-              aria-label="Theme mode"
-              className="flex items-center p-1 rounded-xl border transition-colors bg-[#f1f5f9] dark:bg-[#141b24] border-[#cbd5e1] dark:border-[#222d3d]"
-            >
+            <div className="flex items-center gap-4">
               <button
-                onClick={() => setTheme("dark")}
-                aria-label="Dark mode"
-                className={`p-1.5 rounded-lg transition-all ${
-                  theme === "dark"
-                    ? "bg-[#1a2330] shadow-sm"
-                    : "text-[#64748b] dark:text-[#7e8c9f]"
-                }`}
-                style={theme === "dark" ? { color: "var(--mode-accent)" } : undefined}
+                type="button"
+                onClick={() => setTheme(isDark ? "light" : "dark")}
+                aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+                className="p-1 text-[#64748b] hover:text-[#0f172a] dark:text-[#7e8c9f] dark:hover:text-white transition-colors cursor-pointer"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
+                {isDark ? (
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="5" />
+                    <line x1="12" y1="1" x2="12" y2="3" />
+                    <line x1="12" y1="21" x2="12" y2="23" />
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                    <line x1="1" y1="12" x2="3" y2="12" />
+                    <line x1="21" y1="12" x2="23" y2="12" />
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </svg>
+                )}
               </button>
-              <button
-                onClick={() => setTheme("light")}
-                aria-label="Light mode"
-                className={`p-1.5 rounded-lg transition-all ${
-                  theme === "light"
-                    ? "bg-white shadow-sm"
-                    : "text-[#64748b] dark:text-[#7e8c9f]"
-                }`}
-                style={theme === "light" ? { color: "var(--mode-accent)" } : undefined}
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" />
-                  <line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
-              </button>
+
+              <UserNav />
             </div>
-
-            {/* User Profile */}
-            <UserNav />
-          </div>
-
-          {/* Auxiliary Links: Friendly Tips, Privacy, Shortcuts */}
-          <div className="flex items-center justify-between gap-4 pt-1 text-xs text-[#64748b] dark:text-[#7e8c9f]">
-            <Link
-              href="/tips"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="hover:underline py-1"
-            >
-              Friendly Tips
-            </Link>
-            <Link
-              href="/privacy"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="hover:underline py-1"
-            >
-              Privacy First
-            </Link>
-            <Link
-              href="/shortcuts"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="hover:underline py-1"
-            >
-              Shortcuts
-            </Link>
           </div>
         </div>
       )}

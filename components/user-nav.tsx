@@ -49,10 +49,10 @@ export default function UserNav() {
 
   const avatar = (size: string) =>
     user.avatarUrl ? (
-      <img src={user.avatarUrl} alt={displayName} className={`${size} rounded-lg object-cover`} />
+      <img src={user.avatarUrl} alt={displayName} className={`${size} rounded-full object-cover`} />
     ) : (
       <div
-        className={`${size} rounded-lg flex items-center justify-center font-bold text-xs`}
+        className={`${size} rounded-full flex items-center justify-center font-semibold text-xs`}
         style={{ backgroundColor: activeColor, color: "#08101a" }}
       >
         {initial}
@@ -71,17 +71,10 @@ export default function UserNav() {
         aria-label={`Account menu for ${user.email || displayName}`}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        className="flex items-center gap-2 p-1 md:pr-2.5 rounded-xl border transition-all cursor-pointer shadow-xs hover:opacity-90 whitespace-nowrap shrink-0"
-        style={{
-          backgroundColor: isDark ? colors.containerDark : colors.container,
-          borderColor: isDark ? colors.borderDark : colors.border,
-          color: activeColor,
-        }}
+        className="flex items-center justify-center rounded-full transition-opacity cursor-pointer hover:opacity-85 focus-visible:ring-2 focus-visible:outline-none shrink-0"
+        style={{ outlineColor: activeColor }}
       >
-        {avatar("w-6 h-6")}
-        <span className="hidden md:inline text-xs font-semibold max-w-[120px] truncate whitespace-nowrap">
-          {displayName}
-        </span>
+        {avatar("w-7 h-7")}
       </button>
 
       {isOpen && (
