@@ -237,7 +237,7 @@ export default function TipsPage() {
   };
 
   return (
-    <main className="max-w-[1080px] w-full mx-auto px-4 py-6 sm:px-6 sm:py-8 md:py-12 flex flex-col gap-6 sm:gap-8">
+    <main className="max-w-[1360px] w-full mx-auto px-4 py-5 sm:p-6 md:p-8 flex flex-col gap-6 sm:gap-8">
       {/* 1. Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b border-[#e2e8f0] dark:border-[#1d2634]">
         <div className="flex flex-col gap-2">
