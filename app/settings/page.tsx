@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useTheme } from "../../context/theme-context";
 import { useTimer } from "../../context/timer-context";
 import { useSync } from "../../context/sync-context";
+import { useTour } from "../../context/tour-context";
 import { useExtensionStatus } from "../../lib/blocking/use-extension-status";
 import { getStoredBlocklist } from "../../lib/blocking/blocklist-store";
 import { getSoundSynth, AcousticPreset, ACOUSTIC_PRESETS, isPresetUnlocked } from "../../lib/sound/sound-synth";
@@ -31,6 +32,8 @@ export default function SettingsPage() {
   const { isDark } = useTheme();
   const { mode, isRunning, colors, allModeColors, activeColor, activeBorder } = useTimer();
   const { storageMode, user, openSyncModal } = useSync();
+  const { startTour, resetTourStatus, hasSeenTour } = useTour();
+  const [tourResetNotice, setTourResetNotice] = useState<string | null>(null);
 
   // Settings states initialized with defaults to prevent SSR hydration mismatch
   const [deepFocusMins, setDeepFocusMins] = useState<number>(DEFAULT_SETTINGS.deepFocusMinutes);
@@ -1198,7 +1201,90 @@ export default function SettingsPage() {
             </Link>
           </div>
 
-          {/* 3. Privacy & Data Card */}
+          {/* 3. Platform Tour & Guidance Card (Minimalist, no pills or badges) */}
+          <div className="p-4 sm:p-6 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                  style={{
+                    backgroundColor: isDark ? colors.containerDark : colors.container,
+                    color: activeColor,
+                  }}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <polygon points="10 8 16 12 10 16 10 8" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="font-bold text-sm text-[#0f172a] dark:text-white">
+                    Platform Tour
+                  </h2>
+                  <p className="text-xs text-[#64748b] dark:text-[#7e8c9f]">
+                    Guided introduction for first timers
+                  </p>
+                </div>
+              </div>
+
+              <span className="text-xs text-[#64748b] dark:text-[#7e8c9f]">
+                {hasSeenTour ? "Seen" : "Pending"}
+              </span>
+            </div>
+
+            <p className="text-xs text-[#64748b] dark:text-[#7e8c9f] leading-relaxed">
+              Walk through the core focus rhythm, acoustic soundscapes, website deflection shields, and serene Zen garden features at your own pace.
+            </p>
+
+            {tourResetNotice && (
+              <div
+                className="text-xs p-2.5 rounded-lg border transition-all animate-in fade-in"
+                style={{
+                  borderColor: activeBorder,
+                  backgroundColor: isDark ? colors.containerDark : colors.container,
+                  color: activeColor,
+                }}
+              >
+                {tourResetNotice}
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setTourResetNotice(null);
+                  startTour(0);
+                }}
+                className="w-full sm:flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer hover:opacity-90 active:scale-[0.99] focus-visible:ring-2 focus-visible:outline-none"
+                style={{
+                  backgroundColor: activeColor,
+                  color: isDark ? "#0c1017" : "#ffffff",
+                  outlineColor: activeColor,
+                }}
+              >
+                <span>Take Platform Tour</span>
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  resetTourStatus();
+                  setTourResetNotice("Tour status reset. The walkthrough will greet you again on your next reload.");
+                  setTimeout(() => setTourResetNotice(null), 5000);
+                }}
+                className="w-full sm:w-auto py-2.5 px-3.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] hover:bg-[#f1f5f9] dark:hover:bg-[#1a2330] text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white shadow-xs cursor-pointer"
+                style={{ outlineColor: activeColor }}
+              >
+                <span>Reset Status</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 4. Privacy & Data Card */}
           <div className="p-4 sm:p-6 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
             <div className="flex items-center gap-2.5 mb-2">
               <svg

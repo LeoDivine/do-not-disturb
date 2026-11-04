@@ -5,6 +5,7 @@ import "./globals.css";
 import { ThemeProvider } from "../context/theme-context";
 import { TimerProvider } from "../context/timer-context";
 import { SyncProvider } from "../context/sync-context";
+import { TourProvider } from "../context/tour-context";
 import { AuthProvider } from "../components/auth/auth-provider";
 import Navbar from "../components/navbar";
 import MobileDesktopNotice from "../components/mobile-desktop-notice";
@@ -14,6 +15,7 @@ import GlobalShortcuts from "../components/global-shortcuts";
 import SyncModal from "../components/sync-modal";
 import ExtensionInstallBanner from "../components/extension-install-banner";
 import SessionRewardModal from "../components/gamification/session-reward-modal";
+import PlatformTour from "../components/tour/platform-tour";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -82,15 +84,18 @@ export default function RootLayout({
           <TimerProvider>
             <AuthProvider>
               <SyncProvider>
-                <Navbar />
-                <MobileDesktopNotice />
-                <ExtensionInstallBanner />
-                <div className="flex-1 flex flex-col">{children}</div>
-                <Footer />
-                <MiniTimerWindow />
-                <GlobalShortcuts />
-                <SyncModal />
-                <SessionRewardModal />
+                <TourProvider>
+                  <Navbar />
+                  <MobileDesktopNotice />
+                  <ExtensionInstallBanner />
+                  <div className="flex-1 flex flex-col">{children}</div>
+                  <Footer />
+                  <MiniTimerWindow />
+                  <GlobalShortcuts />
+                  <SyncModal />
+                  <SessionRewardModal />
+                  <PlatformTour />
+                </TourProvider>
               </SyncProvider>
             </AuthProvider>
           </TimerProvider>

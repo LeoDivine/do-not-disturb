@@ -6,12 +6,14 @@ import Link from "next/link";
 import { useSync } from "../context/sync-context";
 import { useTimer } from "../context/timer-context";
 import { useTheme } from "../context/theme-context";
+import { useTour } from "../context/tour-context";
 import { useCloseOnEscape } from "../lib/overlays/use-close-on-escape";
 
 export default function UserNav() {
   const { user, logout } = useSync();
   const { activeColor, colors } = useTimer();
   const { isDark } = useTheme();
+  const { startTour } = useTour();
   const [isOpen, setIsOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -110,6 +112,21 @@ export default function UserNav() {
             </svg>
             Privacy &amp; data
           </Link>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setIsOpen(false);
+              startTour(0);
+            }}
+            className={menuItemClass}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <polygon points="10 8 16 12 10 16 10 8" />
+            </svg>
+            Platform tour
+          </button>
 
           <div className="my-1 border-t border-slate-100 dark:border-[#1a2332]" />
 
