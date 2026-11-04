@@ -14,6 +14,7 @@ import MiniTimerWindow from "../components/mini-timer-window";
 import GlobalShortcuts from "../components/global-shortcuts";
 import SyncModal from "../components/sync-modal";
 import ExtensionInstallBanner from "../components/extension-install-banner";
+import OfflineBanner from "../components/offline-banner";
 import SessionRewardModal from "../components/gamification/session-reward-modal";
 import PlatformTour from "../components/tour/platform-tour";
 
@@ -88,6 +89,7 @@ export default function RootLayout({
                   <Navbar />
                   <MobileDesktopNotice />
                   <ExtensionInstallBanner />
+                  <OfflineBanner />
                   <div className="flex-1 flex flex-col">{children}</div>
                   <Footer />
                   <MiniTimerWindow />

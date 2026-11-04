@@ -119,7 +119,7 @@ export default function UserNav() {
               setIsOpen(false);
               startTour(0);
             }}
-            className={menuItemClass}
+            className={`${menuItemClass} hidden md:flex`}
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />

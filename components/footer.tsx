@@ -62,7 +62,7 @@ export default function Footer() {
           <button
             type="button"
             onClick={() => startTour(0)}
-            className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:opacity-100 py-1 text-inherit hover:text-[#0f172a] dark:hover:text-white"
+            className="hidden md:inline-block cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:opacity-100 py-1 text-inherit hover:text-[#0f172a] dark:hover:text-white"
           >
             Platform Tour
           </button>

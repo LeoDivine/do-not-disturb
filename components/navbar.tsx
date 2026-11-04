@@ -6,7 +6,6 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useTheme } from "../context/theme-context";
 import { useTimer } from "../context/timer-context";
-import { useTour } from "../context/tour-context";
 import { useCloseOnEscape } from "../lib/overlays/use-close-on-escape";
 import SyncButton from "./sync-button";
 import UserNav from "./user-nav";
@@ -15,7 +14,6 @@ import NavbarLevelPill from "./gamification/navbar-level-pill";
 export default function Navbar() {
   const pathname = usePathname();
   const { setTheme, isDark } = useTheme();
-  const { startTour } = useTour();
   const {
     mode,
     setMode,
@@ -408,16 +406,6 @@ export default function Navbar() {
                 </Link>
               );
             })}
-            <button
-              type="button"
-              onClick={() => {
-                setIsMobileMenuOpen(false);
-                startTour(0);
-              }}
-              className="py-2 text-left font-medium text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white transition-colors cursor-pointer flex items-center justify-between"
-            >
-              <span>Platform Tour</span>
-            </button>
           </nav>
 
           {/* Minimal Controls Row */}
