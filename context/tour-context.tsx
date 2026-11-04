@@ -47,16 +47,19 @@ export function TourProvider({ children }: { children: ReactNode }) {
     const seen = hasSeenPlatformTour();
     setHasSeenTour(seen);
 
-    // If first-time user and not on the blocked page, trigger tour gently
-    if (!seen && pathname !== "/blocked") {
+    // If first-time user, not on blocked page, and on desktop view, trigger tour gently
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    if (!seen && pathname !== "/blocked" && !isMobile) {
       const timer = setTimeout(() => {
-        setIsOpen(true);
+        if (typeof window !== "undefined" && window.innerWidth >= 768) {
+          setIsOpen(true);
+        }
       }, 700);
       return () => clearTimeout(timer);
     }
   }, [pathname]);
 
-  // Sync state when storage changes or when custom events fire
+  // Sync state when storage changes or when custom events fire, and close if resized to mobile
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === "dnd_platform_tour_seen") {
@@ -71,23 +74,35 @@ export function TourProvider({ children }: { children: ReactNode }) {
     };
 
     const handleStartTourExternal = (e: CustomEvent<{ step?: number }>) => {
+      if (typeof window !== "undefined" && window.innerWidth < 768) return;
       const step = e.detail?.step ?? 0;
       setCurrentStepIndex(step);
       setIsOpen(true);
     };
 
+    const handleResize = () => {
+      if (typeof window !== "undefined" && window.innerWidth < 768) {
+        setIsOpen(false);
+      }
+    };
+
     window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("resize", handleResize);
     window.addEventListener(TOUR_EVENT as any, handleTourEvent);
     window.addEventListener(START_TOUR_EVENT as any, handleStartTourExternal);
 
     return () => {
       window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("resize", handleResize);
       window.removeEventListener(TOUR_EVENT as any, handleTourEvent);
       window.removeEventListener(START_TOUR_EVENT as any, handleStartTourExternal);
     };
   }, []);
 
   const startTour = useCallback((initialStep: number = 0) => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      return;
+    }
     setCurrentStepIndex(
       Math.max(0, Math.min(initialStep, PLATFORM_TOUR_STEPS.length - 1))
     );

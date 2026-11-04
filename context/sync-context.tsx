@@ -164,6 +164,33 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   }, [pullCloudData]);
 
+  // Listen for browser online and offline events
+  useEffect(() => {
+    const handleOnline = () => {
+      if (userRef.current) {
+        syncNow();
+      } else {
+        setSyncState("idle");
+      }
+    };
+
+    const handleOffline = () => {
+      setSyncState("offline");
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setSyncState("offline");
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [syncNow]);
+
   const login = async (
     email: string,
     password: string,

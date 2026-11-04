@@ -40,9 +40,16 @@ export default function PlatformTour() {
   const { activeColor } = useTimer();
   const { isDark } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     setMounted(true);
+    const checkMobile = () => {
+      setIsMobile(typeof window !== "undefined" && window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
   // Escape key closes the tour overlay
@@ -77,7 +84,7 @@ export default function PlatformTour() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, nextStep, prevStep]);
 
-  if (!isOpen || !mounted) {
+  if (!isOpen || !mounted || isMobile) {
     return null;
   }
 
@@ -90,7 +97,7 @@ export default function PlatformTour() {
       role="dialog"
       aria-modal="true"
       aria-label="Platform introduction tour"
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-black/45 dark:bg-black/65 backdrop-blur-xs transition-opacity duration-200"
+      className="hidden md:flex fixed inset-0 z-[9999] items-center justify-center p-4 sm:p-6 bg-black/45 dark:bg-black/65 backdrop-blur-xs transition-opacity duration-200"
       onClick={closeTour}
     >
       <div
