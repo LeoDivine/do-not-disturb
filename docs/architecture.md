@@ -6,10 +6,11 @@ This document details the system design, core modules, component interactions, a
 
 ## 1. High-Level System Architecture
 
-Do Not Disturb consists of three primary subsystems interacting in real time:
-1. **Next.js Web Application**: Serves the user interface, manages timer state, synthesizes procedural audio, and provides backend API route handlers.
+Do Not Disturb consists of four primary subsystems interacting in real time:
+1. **Next.js Web Application**: Serves the user interface, manages timer state, synthesizes procedural audio, coordinates Spotify playback, and provides backend API route handlers.
 2. **Companion Chromium Extension**: Executes network-level request redirection via `chrome.declarativeNetRequest`, controls background alarms, and relays state via content scripts.
-3. **Database & Cloud Sync Service**: PostgreSQL database accessed via Prisma ORM 7, providing persistence for authenticated users while supporting full offline guest operation.
+3. **Dual Focus Audio Engine**: Blends offline procedural Web Audio synthesizers (Rain, 40Hz Binaural Beats, Space) with the official Spotify IFrame Embed Controller, managed seamlessly via an asynchronous Audio Coordinator.
+4. **Database & Cloud Sync Service**: PostgreSQL database accessed via Prisma ORM 7, providing persistence for authenticated users while supporting full offline guest operation.
 
 ```mermaid
 flowchart TD
@@ -17,7 +18,9 @@ flowchart TD
         subgraph WebApp ["Next.js Web Application (localhost:3000)"]
             UI["Focus Dashboard & Settings UI"]
             TimerCtx["Timer Context & Engine"]
+            AudioCoord["Audio Coordinator (audio-coordinator.ts)"]
             SoundSynth["Web Audio API Synthesizer"]
+            SpotifyEmbed["Spotify Embed Controller (IFrame API)"]
             LocalStore["LocalStorage / IndexedDB (Local-First)"]
             SyncCtx["Sync Context & Client"]
         end
@@ -33,16 +36,29 @@ flowchart TD
 
     subgraph Backend ["Next.js Backend & Database"]
         AuthAPI["/api/auth/*"]
+        SpotifyAPI["/api/spotify/*"]
         SyncAPI["/api/sync/*"]
         PrismaClient["Prisma ORM 7 Client"]
         PostgresDB[("PostgreSQL Database")]
     end
 
+    subgraph ExternalSpotify ["Spotify Cloud Services"]
+        Accounts["accounts.spotify.com (OAuth 2.0)"]
+        WebAPI["api.spotify.com/v1 (Playlists & Player)"]
+    end
+
     %% Web App internal flows
     TimerCtx --> UI
-    TimerCtx --> SoundSynth
+    TimerCtx --> AudioCoord
+    AudioCoord --> SoundSynth
+    AudioCoord --> SpotifyEmbed
     TimerCtx --> LocalStore
     SyncCtx <--> LocalStore
+
+    %% Spotify Backend & Cloud flows
+    SpotifyAPI <--> Accounts
+    SpotifyAPI <--> WebAPI
+    SpotifyEmbed <--> SpotifyAPI
 
     %% Extension & Web App communication
     TimerCtx -- "window.postMessage (DND_SYNC_SESSION)" --> ContentBridge
@@ -77,6 +93,8 @@ The user interface is built on Next.js 16 with the App Router model:
 - `app/statistics/page.tsx`: Session history charts, focus time totals, and deflection count metrics.
 - `app/shortcuts/page.tsx`: Interactive keyboard shortcut configuration page.
 - `app/settings/page.tsx`: User configuration for session lengths, break cadence, blocking strictness, and theme preferences.
+- `app/connected-apps/page.tsx`: Hub for viewing and managing connected integrations (Spotify account linking, connection health, and disconnect).
+- `app/callback/page.tsx`: Multi-provider OAuth callback handler (Spotify, Google) featuring single-use code exchange deduplication, opener messaging, and auto-close.
 - `app/blocked/page.tsx`: Deflection destination displaying a mindful breathing interface and the time remaining in the current focus block.
 - `app/admin/page.tsx`: Stealth, privacy-first Superadmin Command Center gated by `getSuperAdminUser()` (silently redirecting non-superadmins to `/`).
 
@@ -123,6 +141,21 @@ Rather than streaming heavy audio assets over the network, Do Not Disturb utiliz
   - Filters pink noise through a resonant bandpass filter (540 Hz) and adds a subtle 880 Hz harmonic overtone with gentle vibrato, modulated by an organic 0.14 Hz canopy gust LFO.
 - **Tibetan Singing Bowl / Meditation Chime**:
   - Synthesized dynamically on session completion using decaying sinusoidal partials (harmonic frequencies: 528 Hz, 1056 Hz, 1584 Hz) with exponential gain decay ramps (`exponentialRampToValueAtTime`).
+
+### 3.2 Spotify Integration & Dual Audio Architecture
+
+Do Not Disturb pairs its procedural synthesizer with the official Spotify IFrame Embed Controller (`components/spotify/spotify-focus-player.tsx`):
+
+1. **Unified Audio Coordinator (`lib/sound/audio-coordinator.ts`)**:
+   - Offers three operating modes: `ambient` (synthesizer only), `spotify` (Spotify only), and `both` (ambient rain or beats layered gently under Spotify tracks).
+   - Listens to `TimerContext` lifecycle events: automatically starts playback when focus begins (`playFocusAudio`), pauses playback during short and long breaks (`pauseFocusAudio`), and halts playback on session reset.
+   - Dispatches instantaneous playback commands (`play`, `pause`, `resume`, `toggle`, `next`, `prev`) across windows and tabs via `BroadcastChannel("dnd-spotify-command-channel")` and custom DOM events.
+2. **Track Memory & Session Continuity**:
+   - The embed controller listens to Spotify `playback_update` events and stores the currently active track URI (`lastPlayedTrackUri`) in `localStorage`.
+   - When users pause to take a break or step away, resuming the timer continues playback on the same track rather than resetting to the first song of the playlist.
+3. **Picture-in-Picture Mini Window**:
+   - Synchronizes now-playing artwork, artist name, and track title from `current-track-store.ts` directly into the floating desktop PiP window (`components/mini-timer-window.tsx`).
+   - For full technical details and sequence flows, refer to the [Spotify Integration Guide](spotify-integration.md).
 
 ---
 
@@ -193,7 +226,7 @@ Do Not Disturb operates on a **Local-First** design pattern:
 
 When reconciling client and server state:
 - **Blocklist**: Union of unique normalized hostnames (`example.com`). If active flags differ, client takes precedence during an explicit local toggle.
-- **Settings & Presets**: Most recently updated timestamp (`updatedAt`) wins. Custom presets are matched by name and deduplicated.
+- **Settings & Presets**: Most recently updated timestamp (`updatedAt`) wins. Reconciles timer durations, break cadences, strict blocking, completion chime, acoustic presets, volume levels, and `autoPlayAudio` (timer auto-play). Custom presets are matched by name and deduplicated.
 - **UI Preferences & Toggles**: Visualizer mode (`__visual_mode__`), shortcut master toggles (`__shortcuts_enabled__`), and active focus anchors (`__primary_anchor__`, `__session_intent__`) are persisted as metadata entries.
 - **Sessions & History**: Idempotent insert based on session ID (`cuid`) and start timestamp. Focus goals, intent milestones, and post-sprint retrospective notes are fully preserved.
 - **Deflection Events**: Granular deflection event logs are matched by timestamp and URL, mapped to the user's blocked website entities, and cumulatively appended.
@@ -221,3 +254,8 @@ When reconciling client and server state:
 5. **Superadmin Authorization & Privacy-First Telemetry**:
    - Controlled via environment variable allowlisting (`SUPERADMIN_EMAIL` / `SUPERADMIN_EMAILS`) validated on the server via `isSuperAdminEmail()` and `getSuperAdminUser()` in `lib/auth.ts`.
    - `/admin` is unindexed, omitted from public navigation, and enforces `k`-anonymity (`k >= 2`) on global domain leaderboards, redacts personal focus anchors, and masks user emails by default.
+6. **Spotify OAuth 2.0 & AES-256-GCM Session Encryption**:
+   - Spotify access and refresh tokens are decoupled from the PostgreSQL database and stored in an HTTP-only cookie (`dnd_spotify_session`).
+   - The token payload is encrypted and authenticated using AES-256-GCM with a 32-byte key derived from `AUTH_SECRET`, randomized 12-byte IVs, and 16-byte authentication tags.
+   - OAuth CSRF protection is enforced via cryptographically secure single-use state tokens persisted in `dnd_spotify_oauth_state` with a 10-minute expiry window.
+   - Access tokens are automatically refreshed in the background with a 60-second safety buffer before expiry.

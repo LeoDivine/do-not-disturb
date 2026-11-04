@@ -8,6 +8,7 @@ import {
 import { getStoredShortcuts, saveStoredShortcuts, DEFAULT_SHORTCUTS, ShortcutDef } from "../shortcuts/shortcuts-store";
 import { getStoredSessions, saveStoredSessions, getSessionStats } from "../sessions/session-store";
 import { getStoredSettings, saveStoredSettings } from "../settings/settings-store";
+import { saveStoredSpotifyPreferences } from "../spotify/spotify-store";
 import { getStoredGamification, saveStoredGamification } from "../gamification/gamification-store";
 import {
   SyncPayload,
@@ -124,6 +125,12 @@ export function sanitizeSyncPayload(data: any): Partial<SyncPayload> {
       acousticPreset: typeof data.settings.acousticPreset === "string" ? data.settings.acousticPreset : "rain",
       bgAmbienceVolume: typeof data.settings.bgAmbienceVolume === "number" ? Math.min(100, Math.max(0, data.settings.bgAmbienceVolume)) : 65,
       completionChime: Boolean(data.settings.completionChime),
+      autoPlayAudio:
+        typeof data.settings.autoPlayAudio === "boolean"
+          ? data.settings.autoPlayAudio
+          : typeof data.settings.autoPlayOnFocus === "boolean"
+          ? data.settings.autoPlayOnFocus
+          : true,
     };
   }
 
@@ -236,6 +243,15 @@ export function applyStateToDevice(rawPayload: Partial<SyncPayload>): void {
   // 4. Settings
   if (payload.settings) {
     saveStoredSettings(payload.settings);
+    const autoPlay =
+      typeof payload.settings.autoPlayAudio === "boolean"
+        ? payload.settings.autoPlayAudio
+        : typeof payload.settings.autoPlayOnFocus === "boolean"
+        ? payload.settings.autoPlayOnFocus
+        : undefined;
+    if (autoPlay !== undefined) {
+      saveStoredSpotifyPreferences({ autoPlayOnFocus: autoPlay });
+    }
   }
 
   // 5. Presets

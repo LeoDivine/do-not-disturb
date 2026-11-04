@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: UserSettingsPayload = {
   acousticPreset: "rain",
   bgAmbienceVolume: 65,
   completionChime: true,
+  autoPlayAudio: true,
   theme: "SYSTEM",
 };
 
@@ -76,6 +77,12 @@ export function getStoredSettings(): UserSettingsPayload {
         typeof parsed.completionChime === "boolean"
           ? parsed.completionChime
           : DEFAULT_SETTINGS.completionChime,
+      autoPlayAudio:
+        typeof parsed.autoPlayAudio === "boolean"
+          ? parsed.autoPlayAudio
+          : typeof parsed.autoPlayOnFocus === "boolean"
+          ? parsed.autoPlayOnFocus
+          : DEFAULT_SETTINGS.autoPlayAudio,
       theme:
         parsed.theme === "LIGHT" || parsed.theme === "DARK" || parsed.theme === "SYSTEM"
           ? parsed.theme

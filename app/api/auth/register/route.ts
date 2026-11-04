@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
             acousticPreset: initialPayload?.settings?.acousticPreset ?? "rain",
             bgAmbienceVolume: initialPayload?.settings?.bgAmbienceVolume ?? 65,
             completionChime: initialPayload?.settings?.completionChime ?? true,
+            autoPlayAudio: initialPayload?.settings?.autoPlayAudio ?? initialPayload?.settings?.autoPlayOnFocus ?? true,
             theme: initialPayload?.settings?.theme ?? "SYSTEM",
           },
         },

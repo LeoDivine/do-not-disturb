@@ -1,6 +1,6 @@
 # Do Not Disturb (DND)
 
-> A modern, privacy-first focus and productivity platform combining a Next.js 16 web application, a Chromium Manifest V3 browser extension for network-level distraction deflection, procedural Web Audio soundscapes, and local-first cloud synchronization.
+> A modern, privacy-first focus and productivity platform combining a Next.js 16 web application, a Chromium Manifest V3 browser extension for network-level distraction deflection, dual-engine audio (procedural Web Audio soundscapes + Spotify integration), and local-first cloud synchronization.
 
 ---
 
@@ -9,10 +9,11 @@
 Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 - **[Documentation Hub](docs/README.md)**: Main documentation index and navigation guide.
-- **[System Architecture](docs/architecture.md)**: Technical architecture, component interactions, Web Audio synthesis, and state synchronization.
+- **[System Architecture](docs/architecture.md)**: Technical architecture, component interactions, Web Audio synthesis, Spotify audio coordination, and state synchronization.
+- **[Spotify Integration Flow](docs/spotify-integration.md)**: End-to-end OAuth 2.0 flow, AES-256-GCM encrypted cookies, Spotify IFrame Embed Controller, PiP sync, and developer configuration.
 - **[Superadmin Telemetry Guide](docs/superadmin-guide.md)**: Privacy-first `/admin` command center, live timer pulse, `k`-anonymity safeguards, and storage hygiene.
 - **[Companion Extension Guide](docs/extension-guide.md)**: Chromium MV3 extension architecture, `declarativeNetRequest` rules engine, installation, and debugging.
-- **[REST API Reference](docs/api-reference.md)**: Full API specifications for authentication, data synchronization, and assets.
+- **[REST API Reference](docs/api-reference.md)**: Full API specifications for authentication, data synchronization, Spotify integration, and assets.
 - **[Database Schema & Models](docs/database-schema.md)**: PostgreSQL models, relations, enums, indexes, and migrations with Prisma ORM 7.
 - **[User Guide & Feature Manual](docs/user-guide.md)**: Guide to timer workflows, website deflection, soundscapes, analytics, and shortcuts.
 - **[Development & Deployment Guide](docs/development-guide.md)**: Local development setup, environment variables, database commands, and deployment.

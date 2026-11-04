@@ -91,6 +91,7 @@ export async function fetchCloudSyncPayload(userId: string): Promise<SyncPayload
           acousticPreset: dbUser.settings.acousticPreset,
           bgAmbienceVolume: dbUser.settings.bgAmbienceVolume,
           completionChime: dbUser.settings.completionChime,
+          autoPlayAudio: (dbUser.settings as any).autoPlayAudio ?? true,
           theme: dbUser.settings.theme,
         }
       : undefined,
@@ -291,6 +292,8 @@ export async function POST(req: NextRequest) {
 
     // 3. Sync Settings
     if (body.settings) {
+      const { autoPlayOnFocus: _unused, ...safeSettings } = body.settings;
+      const resolvedAutoPlay = body.settings.autoPlayAudio ?? body.settings.autoPlayOnFocus ?? true;
       await prisma.userSettings.upsert({
         where: { userId: user.id },
         create: {
@@ -305,10 +308,12 @@ export async function POST(req: NextRequest) {
           acousticPreset: body.settings.acousticPreset ?? "rain",
           bgAmbienceVolume: body.settings.bgAmbienceVolume ?? 65,
           completionChime: body.settings.completionChime ?? true,
+          autoPlayAudio: resolvedAutoPlay,
           theme: body.settings.theme ?? "SYSTEM",
         },
         update: {
-          ...body.settings,
+          ...safeSettings,
+          autoPlayAudio: resolvedAutoPlay,
         },
       });
     }

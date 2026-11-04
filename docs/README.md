@@ -11,13 +11,14 @@ Explore the detailed documentation guides below:
 | Document | Description |
 | :--- | :--- |
 | **[Architecture Guide](architecture.md)** | Technical architecture, data flow, Web Audio synthesis engine, extension bridge, and state synchronization. |
+| **[Spotify Integration Flow](spotify-integration.md)** | End-to-end guide on Spotify OAuth 2.0, AES-256-GCM encrypted sessions, IFrame Embed Controller, PiP sync, and audio coordination. |
 | **[Superadmin Telemetry Guide](superadmin-guide.md)** | Privacy-first `/admin` command center, live timer pulse (Signed-In + Local Guests), `k`-anonymized blocker stats, and storage hygiene. |
 | **[Gamification & Zen Sanctuary Guide](gamification-guide.md)** | Flow XP engine, levels, compassionate streaks, procedural Zen Bonsai, soundscape unlocks, and milestones. |
 | **[Companion Extension Guide](extension-guide.md)** | Browser extension architecture, `declarativeNetRequest` rules engine, content script bridge, installation, and debugging. |
-| **[API Reference](api-reference.md)** | Full specification of REST API endpoints for authentication, bi-directional data synchronization, and assets. |
+| **[API Reference](api-reference.md)** | Full specification of REST API endpoints for authentication, bi-directional data synchronization, Spotify integration, and assets. |
 | **[Database Schema](database-schema.md)** | Comprehensive Prisma ORM 7 schema documentation, PostgreSQL models, relations, indexes, and migrations. |
-| **[User Guide](user-guide.md)** | End-user manual covering the Pomodoro timer, website deflection, soundscapes, analytics, and shortcuts. |
-| **[Development & Deployment Guide](development-guide.md)** | Developer onboarding, local environment setup, PostgreSQL configuration, extension testing, and deployment. |
+| **[User Guide](user-guide.md)** | End-user manual covering the Pomodoro timer, website deflection, soundscapes, Spotify focus player, analytics, and shortcuts. |
+| **[Development & Deployment Guide](development-guide.md)** | Developer onboarding, local environment setup, PostgreSQL configuration, Spotify Developer credentials, extension testing, and deployment. |
 | **[Design System Tokens](design.md)** | Palette definitions, typography scales, elevation levels, and design tokens for the Serene Focus theme. |
 | **[Technical Implementation Plan](do-not-disturb-technical-implementation-plan.md)** | Original architectural blueprint, feature specifications, and implementation phases. |
 
@@ -40,7 +41,7 @@ Do Not Disturb is designed around four core principles:
 - **Frontend & UI**: React 19, Tailwind CSS v4, Lucide React icons
 - **Database & ORM**: PostgreSQL with Prisma ORM 7 (`@prisma/adapter-pg` driver adapter)
 - **Browser Extension**: Chromium Manifest V3 (`declarativeNetRequest`, `alarms`, `storage`, content bridge)
-- **Audio Synthesis**: Procedural Web Audio API soundscapes (Gentle Rain, Focus Beats, Deep Space, Tibetan Chime)
+- **Audio & Focus Soundtrack**: Dual-engine audio architecture — procedural Web Audio API soundscapes (Gentle Rain, Focus Beats, Deep Space, Tibetan Chime) and official Spotify IFrame Embed Controller with AES-256-GCM session encryption
 - **Authentication**: Stateless HMAC-SHA256 signed session tokens with `scrypt` password hashing and HTTP-only cookies
 - **Package Manager**: pnpm
 
@@ -49,6 +50,7 @@ Do Not Disturb is designed around four core principles:
 ## 🚀 Quick Navigation
 
 - **Want to run the project locally?** Head to the [Development Guide](development-guide.md).
+- **Setting up or troubleshooting Spotify?** See the [Spotify Integration Guide](spotify-integration.md).
 - **Want to understand how website blocking works?** Read the [Companion Extension Guide](extension-guide.md).
 - **Want to see how data models and sessions are stored?** View the [Database Schema](database-schema.md).
 - **Integrating or extending the API?** Consult the [API Reference](api-reference.md).

@@ -837,6 +837,11 @@ class SoundSynthesizer {
 	): boolean {
 		try {
 			const ctx = this.getContext();
+			if (ctx.state === "suspended") {
+				ctx.resume().catch((err) => {
+					console.warn("Could not resume AudioContext:", err);
+				});
+			}
 			this.currentVolumePercent = volumePercent;
 			const targetGain = this.percentToGain(volumePercent);
 

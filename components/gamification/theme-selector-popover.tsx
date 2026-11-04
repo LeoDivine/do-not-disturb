@@ -69,9 +69,7 @@ export default function ThemeSelectorPopover({
   }, []);
 
   // Track user level progression from gamification store
-  const [userLevel, setUserLevel] = useState<number>(() => {
-    return getStoredGamification().level;
-  });
+  const [userLevel, setUserLevel] = useState<number>(1);
 
   // Encouraging lock prompt feedback
   const [lockedNotice, setLockedNotice] = useState<{
@@ -81,6 +79,8 @@ export default function ThemeSelectorPopover({
 
   // Sync user gamification level and update on events
   useEffect(() => {
+    setUserLevel(getStoredGamification().level);
+
     const handleUpdate = () => {
       setUserLevel(getStoredGamification().level);
     };

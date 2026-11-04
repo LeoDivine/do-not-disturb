@@ -1,10 +1,29 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { useTheme } from "../context/theme-context";
 import { useTimer } from "../context/timer-context";
 import { getStoredBlocklist } from "../lib/blocking/blocklist-store";
 import { HolidayId, HOLIDAY_THEMES } from "./gamification/holiday-themes";
+import {
+  ActiveTrackInfo,
+  getCurrentPlayingTrack,
+  setCurrentPlayingTrack,
+  subscribeToCurrentPlayingTrack,
+} from "../lib/sound/current-track-store";
+import {
+  SpotifyStoredPreference,
+  DEFAULT_SPOTIFY_PREFS,
+  getStoredSpotifyPreferences,
+  saveStoredSpotifyPreferences,
+  subscribeToSpotifyPreferences,
+  getSpotifyEmbedUrl,
+} from "../lib/spotify/spotify-store";
+import {
+  playFocusAudio,
+  stopFocusAudio,
+  subscribeToSpotifyCommands,
+} from "../lib/sound/audio-coordinator";
 
 export default function MiniTimerWindow() {
   const { isDark } = useTheme();
@@ -61,6 +80,116 @@ export default function MiniTimerWindow() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
+  const pipControllerRef = useRef<any>(null);
+  const pipLoadedUriRef = useRef<string | null>(null);
+
+  const pausePipAudio = useCallback(() => {
+    if (pipControllerRef.current) {
+      try {
+        if (typeof pipControllerRef.current.pause === "function") {
+          pipControllerRef.current.pause();
+        }
+      } catch {}
+    }
+    if (pipWindowRef.current && !pipWindowRef.current.closed) {
+      try {
+        const pipDoc = pipWindowRef.current.document;
+        const iframes = pipDoc.querySelectorAll("iframe");
+        iframes.forEach((iframe) => {
+          try {
+            iframe.contentWindow?.postMessage({ command: "pause" }, "*");
+            iframe.contentWindow?.postMessage({ type: "pause" }, "*");
+            iframe.contentWindow?.postMessage({ method: "pause" }, "*");
+          } catch {}
+        });
+      } catch {}
+    }
+  }, []);
+
+  const playPipAudio = useCallback(() => {
+    const targetUri =
+      spotifyPrefsRef.current?.lastPlayedTrackUri ||
+      spotifyPrefsRef.current?.selectedPlaylistUri;
+
+    if (pipControllerRef.current) {
+      try {
+        if (targetUri && pipLoadedUriRef.current !== targetUri && typeof pipControllerRef.current.loadUri === "function") {
+          pipControllerRef.current.loadUri(targetUri);
+          pipLoadedUriRef.current = targetUri;
+        }
+        if (typeof pipControllerRef.current.resume === "function") {
+          pipControllerRef.current.resume();
+        } else if (typeof pipControllerRef.current.play === "function") {
+          pipControllerRef.current.play();
+        } else if (typeof pipControllerRef.current.togglePlay === "function") {
+          pipControllerRef.current.togglePlay();
+        }
+      } catch {}
+    }
+
+    if (pipWindowRef.current && !pipWindowRef.current.closed) {
+      try {
+        const pipDoc = pipWindowRef.current.document;
+        const iframes = pipDoc.querySelectorAll("iframe");
+        iframes.forEach((iframe) => {
+          try {
+            iframe.contentWindow?.postMessage({ command: "resume" }, "*");
+            iframe.contentWindow?.postMessage({ command: "play" }, "*");
+          } catch {}
+        });
+      } catch {}
+    }
+  }, []);
+
+  // Subscribe to Spotify commands from TimerContext or AudioCoordinator to sync the PiP player
+  useEffect(() => {
+    return subscribeToSpotifyCommands((command) => {
+      if (command === "pause") {
+        pausePipAudio();
+      } else if (command === "resume" || command === "play") {
+        playPipAudio();
+      }
+    });
+  }, [pausePipAudio, playPipAudio]);
+
+  // Ensure Spotify audio in PiP window is paused whenever the timer is stopped or paused
+  useEffect(() => {
+    if (!isRunning) {
+      pausePipAudio();
+    }
+  }, [isRunning, pausePipAudio]);
+
+  // Active playing audio track (Ambient or Spotify)
+  const [currentTrack, setCurrentTrack] = useState<ActiveTrackInfo>(() =>
+    getCurrentPlayingTrack()
+  );
+  const currentTrackRef = useRef<ActiveTrackInfo>(currentTrack);
+  useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
+
+  useEffect(() => {
+    setCurrentTrack(getCurrentPlayingTrack());
+    return subscribeToCurrentPlayingTrack((track) => {
+      setCurrentTrack(track);
+    });
+  }, []);
+
+  // Spotify preferences for embed player
+  const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(DEFAULT_SPOTIFY_PREFS);
+  const spotifyPrefsRef = useRef<SpotifyStoredPreference>(spotifyPrefs);
+  useEffect(() => {
+    spotifyPrefsRef.current = spotifyPrefs;
+  }, [spotifyPrefs]);
+
+  useEffect(() => {
+    setSpotifyPrefs(getStoredSpotifyPreferences());
+    return subscribeToSpotifyPreferences((updated) => {
+      setSpotifyPrefs(updated);
+    });
+  }, []);
+
+  const lastLoadedPlaylistUriRef = useRef<string | null>(spotifyPrefs.selectedPlaylistUri || null);
 
   // Sync title when tab is hidden
   useEffect(() => {
@@ -84,6 +213,55 @@ export default function MiniTimerWindow() {
     };
   }, [isRunning, secondsLeft, colors.badgeLabel, formatTime]);
 
+  // Instant play/pause toggle with zero delay and automatic audio start/stop
+  const handlePlayToggle = useCallback(() => {
+    const willBeRunning = !isRunningRef.current;
+
+    // 1. Instant optimistic UI update in Document PiP window (< 1ms delay)
+    if (pipWindowRef.current) {
+      const pipDoc = pipWindowRef.current.document;
+      const playBtn = pipDoc.getElementById("pip-play-btn");
+      const statusEl = pipDoc.getElementById("pip-status");
+      const trackIconEl = pipDoc.getElementById("pip-track-icon");
+
+      if (playBtn) {
+        playBtn.innerHTML = willBeRunning
+          ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
+          : '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-left: 2px;"><polygon points="6 4 19 12 6 20 6 4"/></svg>';
+        playBtn.title = willBeRunning ? "Pause" : "Start";
+      }
+
+      if (statusEl) {
+        statusEl.textContent = willBeRunning ? "In focus" : "Paused";
+        statusEl.style.color = willBeRunning
+          ? (resolvedVisualModeRef.current === "garden" ? "#34d399" : activeColor)
+          : "#64748b";
+      }
+
+      if (trackIconEl) {
+        if (willBeRunning && spotifyPrefsRef.current?.autoPlayOnFocus) {
+          trackIconEl.classList.add("playing");
+        } else if (!willBeRunning) {
+          trackIconEl.classList.remove("playing");
+        }
+      }
+    }
+
+    // 2. Control Spotify Embed Controller in PiP window if present
+    if (willBeRunning) {
+      playPipAudio();
+    } else {
+      pausePipAudio();
+    }
+
+    // 3. Immediately trigger timer context state toggle (TimerContext orchestrates audio centrally)
+    toggleTimerRef.current();
+  }, [activeColor, playPipAudio, pausePipAudio]);
+
+  const handleSkip = useCallback(() => {
+    skipTimerRef.current();
+  }, []);
+
   // Connect Media Session API so OS-level controls & Video PiP controls work
   useEffect(() => {
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
@@ -95,19 +273,19 @@ export default function MiniTimerWindow() {
         });
 
         navigator.mediaSession.setActionHandler("play", () => {
-          toggleTimerRef.current();
+          handlePlayToggle();
         });
         navigator.mediaSession.setActionHandler("pause", () => {
-          toggleTimerRef.current();
+          handlePlayToggle();
         });
         navigator.mediaSession.setActionHandler("nexttrack", () => {
-          skipTimerRef.current();
+          handleSkip();
         });
       } catch {
         // Ignore media session errors
       }
     }
-  }, [secondsLeft, colors.name, cycle, totalCycles, formatTime]);
+  }, [secondsLeft, colors.name, cycle, totalCycles, formatTime, handlePlayToggle, handleSkip]);
 
   // Draw minimalist timer frame on canvas for browser Video PiP fallback (No unnecessary pills)
   const renderCanvasFrame = useCallback(() => {
@@ -158,50 +336,12 @@ export default function MiniTimerWindow() {
     ctx.fillText(`• ${viewBadge}`, textX, textY);
     ctx.restore();
 
-    // Header Shield & Cycle Count
-    let blockedCount = 0;
-    try {
-      blockedCount = getStoredBlocklist().filter((e) => e.active).length;
-    } catch {}
-
-    const cycleInfo = `${cycle}/${totalCycles}`;
-    const blockedInfo = `${blockedCount} guarded`;
-
+    // Header Cycle Info (Clean minimalist text without pills or badges)
     ctx.font = "500 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    ctx.textBaseline = "middle";
-
-    const cycleWidth = ctx.measureText(cycleInfo).width;
-    const sepWidth = ctx.measureText(" • ").width;
-    const blockedWidth = ctx.measureText(blockedInfo).width;
-
-    let rx = w - 24;
+    ctx.textBaseline = "top";
     ctx.fillStyle = "#64748b";
     ctx.textAlign = "right";
-    ctx.fillText(cycleInfo, rx, 18);
-    rx -= cycleWidth;
-
-    ctx.fillText(" • ", rx, 18);
-    rx -= sepWidth;
-
-    ctx.fillText(blockedInfo, rx, 18);
-    rx -= (blockedWidth + 4);
-
-    // Vector shield icon
-    ctx.save();
-    ctx.strokeStyle = "#64748b";
-    ctx.lineWidth = 1.3;
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    const sx = rx - 9;
-    const sy = 13;
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(sx + 7, sy);
-    ctx.lineTo(sx + 7, sy + 3.5);
-    ctx.quadraticCurveTo(sx + 7, sy + 8, sx + 3.5, sy + 10);
-    ctx.quadraticCurveTo(sx, sy + 8, sx, sy + 3.5);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.restore();
+    ctx.fillText(`${cycle}/${totalCycles}`, w - 24, 18);
 
     // Header Goal / Anchor Task
     const anchor = typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || localStorage.getItem("dnd_session_intent") || "" : "";
@@ -478,6 +618,47 @@ export default function MiniTimerWindow() {
       ctx.fill();
     }
 
+    // Draw Current Playing Track info bar on Canvas PiP
+    const track = currentTrackRef.current;
+    if (track && track.title) {
+      const trackText = track.artist ? `${track.title} • ${track.artist}` : track.title;
+      const truncated = trackText.length > 34 ? trackText.slice(0, 32) + "…" : trackText;
+
+      ctx.save();
+      ctx.font = "500 10.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      const textWidth = ctx.measureText(truncated).width;
+      const iconWidth = 11;
+      const spacing = 5;
+      const totalWidth = iconWidth + spacing + textWidth;
+      const startX = (w - totalWidth) / 2;
+      const trackY = isGarden || isHoliday ? 160 : (anchor ? 154 : 151);
+
+      // Equalizer bars or musical note (floating cleanly without pill background)
+      ctx.fillStyle = activeColor;
+      if (track.isPlaying) {
+        const t = Date.now() / 250;
+        const h1 = 3 + Math.abs(Math.sin(t)) * 5;
+        const h2 = 4 + Math.abs(Math.cos(t * 1.3)) * 6;
+        const h3 = 3 + Math.abs(Math.sin(t * 0.8)) * 5;
+        ctx.fillRect(startX, trackY + 4 - h1, 2, h1);
+        ctx.fillRect(startX + 3.5, trackY + 4 - h2, 2, h2);
+        ctx.fillRect(startX + 7, trackY + 4 - h3, 2, h3);
+      } else {
+        ctx.font = "10px sans-serif";
+        ctx.fillText("♪", startX + 4, trackY);
+        ctx.font = "500 10.5px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+      }
+
+      // Track text
+      ctx.fillStyle = track.isPlaying ? "#f1f5f9" : "#94a3b8";
+      ctx.textAlign = "left";
+      ctx.fillText(truncated, startX + iconWidth + spacing, trackY);
+      ctx.restore();
+    }
+
     // Subtle Footer State
     ctx.fillStyle = "#94a3b8";
     ctx.font = "500 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
@@ -488,7 +669,7 @@ export default function MiniTimerWindow() {
     ctx.textAlign = "right";
     ctx.fillStyle = "#64748b";
     ctx.fillText(`Target: ${Math.round(totalSeconds / 60)}m`, w - 24, 180);
-  }, [activeColor, colors.name, cycle, totalCycles, formatTime, secondsLeft, totalSeconds, isRunning, mode, visualMode, resolvedVisualMode]);
+  }, [activeColor, colors.name, cycle, totalCycles, formatTime, secondsLeft, totalSeconds, isRunning, mode, visualMode, resolvedVisualMode, currentTrack]);
 
   const renderCanvasFrameRef = useRef(renderCanvasFrame);
   useEffect(() => {
@@ -662,7 +843,7 @@ export default function MiniTimerWindow() {
       modeEl.textContent = mode === "focus" ? "Focus" : mode === "shortBreak" ? "Short Break" : "Long Break";
       modeEl.style.color = activeColor;
     }
-    if (cycleEl) cycleEl.textContent = `${cycle} of ${totalCycles}`;
+    if (cycleEl) cycleEl.textContent = `${cycle}/${totalCycles}`;
     if (progressEl) {
       const progressPercent = totalSeconds > 0 ? ((totalSeconds - secondsLeft) / totalSeconds) * 100 : 0;
       progressEl.style.width = `${progressPercent}%`;
@@ -698,16 +879,59 @@ export default function MiniTimerWindow() {
         : '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-left: 2px;"><polygon points="6 4 19 12 6 20 6 4"/></svg>';
       playBtn.onclick = (e) => {
         e.preventDefault();
-        toggleTimerRef.current();
+        handlePlayToggle();
       };
     }
     if (skipBtn) {
       skipBtn.onclick = (e) => {
         e.preventDefault();
-        skipTimerRef.current();
+        handleSkip();
       };
     }
-  }, [secondsLeft, isRunning, colors.name, cycle, totalCycles, totalSeconds, activeColor, isDark, mode, formatTime, visualMode, resolvedVisualMode]);
+
+    // Update track info row in Document PiP
+    const trackRowEl = pipDoc.getElementById("pip-track-row");
+    const trackIconEl = pipDoc.getElementById("pip-track-icon");
+    const trackTitleEl = pipDoc.getElementById("pip-track-title");
+    const trackArtistEl = pipDoc.getElementById("pip-track-artist");
+
+    if (trackRowEl && trackTitleEl && trackArtistEl) {
+      const track = currentTrackRef.current;
+      const hasTrack = Boolean(track && track.title);
+      trackRowEl.style.display = hasTrack ? "flex" : "none";
+      if (hasTrack) {
+        trackTitleEl.textContent = track.title;
+        trackArtistEl.textContent = track.artist || "";
+        if (trackIconEl) {
+          if (track.isPlaying) {
+            trackIconEl.classList.add("playing");
+          } else {
+            trackIconEl.classList.remove("playing");
+          }
+        }
+      }
+    }
+    // Update compact header time and Spotify embed in Document PiP
+    const compactTimeEl = pipDoc.getElementById("pip-compact-time");
+    if (compactTimeEl) compactTimeEl.textContent = formatTime(secondsLeft);
+
+    const spotifyIframe = pipDoc.getElementById("pip-spotify-iframe") as HTMLIFrameElement | null;
+    const currentPlaylistUri = spotifyPrefsRef.current?.selectedPlaylistUri;
+    if (currentPlaylistUri && lastLoadedPlaylistUriRef.current && lastLoadedPlaylistUriRef.current !== currentPlaylistUri) {
+      lastLoadedPlaylistUriRef.current = currentPlaylistUri;
+      pipLoadedUriRef.current = currentPlaylistUri;
+      if (pipControllerRef.current) {
+        try {
+          pipControllerRef.current.loadUri(currentPlaylistUri);
+        } catch {}
+      } else if (spotifyIframe) {
+        const targetUrl = getSpotifyEmbedUrl(currentPlaylistUri);
+        spotifyIframe.setAttribute("src", targetUrl);
+      }
+    } else if (currentPlaylistUri && !lastLoadedPlaylistUriRef.current) {
+      lastLoadedPlaylistUriRef.current = currentPlaylistUri;
+    }
+  }, [secondsLeft, isRunning, colors.name, cycle, totalCycles, totalSeconds, activeColor, isDark, mode, formatTime, visualMode, resolvedVisualMode, currentTrack, spotifyPrefs, handlePlayToggle, handleSkip]);
 
   // Trigger minimalist Document Picture-in-Picture window (Browser native style, no pills)
   const openDocumentPip = useCallback(async (forceOpen = false) => {
@@ -731,8 +955,8 @@ export default function MiniTimerWindow() {
           requestWindow: (options: { width: number; height: number }) => Promise<Window>;
         };
       }).documentPictureInPicture.requestWindow({
-        width: 330,
-        height: 215,
+        width: 360,
+        height: 320,
       });
 
       pipWindowRef.current = pip;
@@ -787,6 +1011,35 @@ export default function MiniTimerWindow() {
           font-weight: 600;
           letter-spacing: 0.02em;
         }
+        .compact-time {
+          font-size: 13px;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          font-family: ui-monospace, SFMono-Regular, monospace;
+          color: #ffffff;
+          margin-left: 3px;
+          letter-spacing: -0.02em;
+        }
+        .player-toggle-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 11px;
+          font-weight: 500;
+          color: #94a3b8;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          font-family: inherit;
+          padding: 3px 6px;
+          line-height: 1;
+          border-radius: 6px;
+          transition: color 0.15s ease, background-color 0.15s ease;
+        }
+        .player-toggle-btn:hover {
+          color: #1DB954;
+          background-color: rgba(29, 185, 84, 0.08);
+        }
         .meta-wrap {
           display: flex;
           align-items: center;
@@ -798,38 +1051,26 @@ export default function MiniTimerWindow() {
           gap: 4px;
           font-size: 11px;
           font-weight: 500;
-          color: #34d399;
+          color: #94a3b8;
           background: transparent;
           border: none;
           cursor: pointer;
           font-family: inherit;
-          padding: 0;
+          padding: 3px 6px;
           line-height: 1;
-          transition: color 0.15s ease;
+          border-radius: 6px;
+          transition: color 0.15s ease, background-color 0.15s ease;
         }
         .view-type.timer {
           color: #64748b;
         }
         .view-type:hover {
           color: #f8fafc;
-        }
-        .shield-meta {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          font-size: 11px;
-          color: #64748b;
-          font-weight: 400;
-          line-height: 1;
+          background-color: rgba(255, 255, 255, 0.06);
         }
         .meta-sep {
           color: #334155;
           font-size: 10px;
-        }
-        .shield-icon {
-          display: inline-block;
-          flex-shrink: 0;
-          color: #64748b;
         }
         .cycle-info {
           font-size: 11px;
@@ -905,18 +1146,34 @@ export default function MiniTimerWindow() {
           color: #34d399;
           line-height: 1.2;
         }
+        .spotify-container {
+          width: 100%;
+          height: 152px;
+          margin: 4px 0 6px;
+          border-radius: 10px;
+          overflow: hidden;
+          background: #121212;
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          flex-shrink: 0;
+        }
+        .spotify-container iframe {
+          width: 100%;
+          height: 152px;
+          border: none;
+          display: block;
+        }
         .progress-track {
           width: 100%;
-          height: 2.5px;
+          height: 2px;
           background: rgba(255, 255, 255, 0.08);
-          border-radius: 999px;
+          border-radius: 2px;
           overflow: hidden;
           margin-bottom: 8px;
         }
         .progress-fill {
           height: 100%;
           width: 0%;
-          border-radius: 999px;
+          border-radius: 2px;
           transition: width 0.3s ease;
         }
         .footer-row {
@@ -975,6 +1232,75 @@ export default function MiniTimerWindow() {
         .btn-app:hover {
           color: #ffffff;
         }
+        .track-row {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          padding: 2px 0;
+          background: transparent;
+          border: none;
+          margin: 4px auto 2px;
+          max-width: 96%;
+          overflow: hidden;
+          line-height: 1.2;
+          font-size: 11px;
+        }
+        .track-icon {
+          display: inline-flex;
+          align-items: flex-end;
+          gap: 2px;
+          height: 10px;
+          flex-shrink: 0;
+        }
+        .eq-bar {
+          width: 2px;
+          background: ${activeColor};
+          border-radius: 1px;
+        }
+        .eq-bar-1 { height: 5px; }
+        .eq-bar-2 { height: 8px; }
+        .eq-bar-3 { height: 4px; }
+        .track-icon.playing .eq-bar-1 {
+          animation: pip-eq-1 0.7s ease-in-out infinite alternate;
+        }
+        .track-icon.playing .eq-bar-2 {
+          animation: pip-eq-2 0.5s ease-in-out infinite alternate;
+        }
+        .track-icon.playing .eq-bar-3 {
+          animation: pip-eq-3 0.9s ease-in-out infinite alternate;
+        }
+        @keyframes pip-eq-1 { 0% { height: 3px; } 100% { height: 9px; } }
+        @keyframes pip-eq-2 { 0% { height: 9px; } 100% { height: 4px; } }
+        @keyframes pip-eq-3 { 0% { height: 4px; } 100% { height: 10px; } }
+        .track-meta {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .track-title {
+          font-weight: 600;
+          color: #f1f5f9;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .track-sep {
+          color: #64748b;
+          font-size: 9px;
+          flex-shrink: 0;
+        }
+        .track-artist {
+          color: #94a3b8;
+          font-weight: 400;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
       `;
       pipDoc.head.appendChild(style);
 
@@ -1004,32 +1330,38 @@ export default function MiniTimerWindow() {
         ? holidayTheme.stages[0]
         : "Growing Sprout";
 
+      const initialShowSpotify = spotifyPrefsRef.current.audioSource === "spotify";
+      const initialTrackUri =
+        (currentTrackRef.current?.uri && currentTrackRef.current.uri.startsWith("spotify:track:") ? currentTrackRef.current.uri : null) ||
+        spotifyPrefsRef.current.lastPlayedTrackUri ||
+        spotifyPrefsRef.current.selectedPlaylistUri;
+      const initialSpotifyEmbedUrl = getSpotifyEmbedUrl(initialTrackUri);
+      lastLoadedPlaylistUriRef.current = spotifyPrefsRef.current.selectedPlaylistUri;
+
       container.innerHTML = `
         <div class="header">
           <div class="mode-wrap">
             <span class="mode-dot"></span>
             <span id="pip-mode" class="mode-title" style="color: ${activeColor};">${simpleMode}</span>
+            <span id="pip-compact-time" class="compact-time" style="display: ${initialShowSpotify ? "inline-block" : "none"};">${formatTime(secondsLeft)}</span>
           </div>
           <div class="meta-wrap">
-            <button id="pip-view-toggle" type="button" class="view-type ${isVisual ? "" : "timer"}" title="Toggle Focus View" style="color: ${holidayTheme ? holidayTheme.accentColor : isGarden ? "#34d399" : "#64748b"};">
+            <button id="pip-player-toggle" type="button" class="player-toggle-btn" title="Toggle Spotify Player">
+              <span id="pip-player-icon" style="font-size: 10px;">${initialShowSpotify ? "⏱" : "♫"}</span>
+              <span id="pip-player-label">${initialShowSpotify ? "Timer" : "Spotify"}</span>
+            </button>
+            <button id="pip-view-toggle" type="button" class="view-type ${isVisual ? "" : "timer"}" title="Toggle Focus View" style="display: ${initialShowSpotify ? "none" : "inline-flex"}; color: ${holidayTheme ? holidayTheme.accentColor : isGarden ? "#34d399" : "#64748b"};">
               <span id="pip-view-icon" style="display: inline-flex; align-items: center;">
                 ${viewIcon}
               </span>
               <span id="pip-view-label">${viewLabel}</span>
             </button>
             <span class="meta-sep">•</span>
-            <span id="pip-shield" class="shield-meta">
-              <svg class="shield-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-              <span id="pip-shield-val">${blockedCount} blocked</span>
-            </span>
-            <span class="meta-sep">•</span>
-            <span id="pip-cycle" class="cycle-info">${cycle} of ${totalCycles}</span>
+            <span id="pip-cycle" class="cycle-info">${cycle}/${totalCycles}</span>
           </div>
         </div>
 
-        <div id="pip-anchor" class="anchor-text" style="display: ${anchor ? "flex" : "none"};">
+        <div id="pip-anchor" class="anchor-text" style="display: ${anchor && !initialShowSpotify ? "flex" : "none"};">
           <svg class="anchor-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/>
             <circle cx="12" cy="12" r="6"/>
@@ -1038,11 +1370,11 @@ export default function MiniTimerWindow() {
           <span id="pip-anchor-val" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${anchor}</span>
         </div>
 
-        <div id="pip-timer-view" class="timer-wrap" style="display: ${isVisual ? "none" : "flex"};">
+        <div id="pip-timer-view" class="timer-wrap" style="display: ${initialShowSpotify ? "none" : isVisual ? "none" : "flex"};">
           <div id="pip-time" class="timer-digits">${formatTime(secondsLeft)}</div>
         </div>
 
-        <div id="pip-garden-view" class="garden-wrap" style="display: ${isVisual ? "flex" : "none"};">
+        <div id="pip-garden-view" class="garden-wrap" style="display: ${initialShowSpotify ? "none" : isVisual ? "flex" : "none"};">
           <div class="bonsai-box">
             <svg id="pip-bonsai-svg" width="88" height="88" viewBox="0 0 200 200">
               <circle cx="100" cy="165" r="70" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="4 3" opacity="0.6"/>
@@ -1077,6 +1409,34 @@ export default function MiniTimerWindow() {
           </div>
         </div>
 
+        <!-- SPOTIFY EMBED IFRAME: Allows users to change tracks (Next, Previous, Scrubber, Playlist Tracklist) -->
+        <div id="pip-spotify-container" class="spotify-container" style="display: ${initialShowSpotify ? "block" : "none"};">
+          <div id="pip-spotify-slot">
+            <iframe
+              id="pip-spotify-iframe"
+              src="${initialSpotifyEmbedUrl}"
+              width="100%"
+              height="152"
+              frameBorder="0"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              loading="lazy"
+            ></iframe>
+          </div>
+        </div>
+
+        <div id="pip-track-row" class="track-row" style="display: ${!initialShowSpotify && currentTrack?.title ? "flex" : "none"};">
+          <div id="pip-track-icon" class="track-icon ${currentTrack?.isPlaying ? "playing" : ""}">
+            <span class="eq-bar eq-bar-1"></span>
+            <span class="eq-bar eq-bar-2"></span>
+            <span class="eq-bar eq-bar-3"></span>
+          </div>
+          <div class="track-meta">
+            <span id="pip-track-title" class="track-title">${currentTrack?.title || ""}</span>
+            <span id="pip-track-sep" class="track-sep">•</span>
+            <span id="pip-track-artist" class="track-artist">${currentTrack?.artist || ""}</span>
+          </div>
+        </div>
+
         <div>
           <div class="progress-track">
             <div id="pip-progress" class="progress-fill" style="background-color: ${holidayTheme ? holidayTheme.accentColor : isGarden ? "#10b981" : activeColor}; width: ${progressPercent}%;"></div>
@@ -1105,6 +1465,51 @@ export default function MiniTimerWindow() {
       pipDoc.body.appendChild(container);
 
       // Attach event listeners
+      let isSpotifyView = initialShowSpotify;
+      const playerToggleBtn = pipDoc.getElementById("pip-player-toggle");
+      if (playerToggleBtn) {
+        playerToggleBtn.onclick = (e) => {
+          e.preventDefault();
+          isSpotifyView = !isSpotifyView;
+
+          const spotifyContainer = pipDoc.getElementById("pip-spotify-container");
+          const timerView = pipDoc.getElementById("pip-timer-view");
+          const gardenView = pipDoc.getElementById("pip-garden-view");
+          const trackRow = pipDoc.getElementById("pip-track-row");
+          const compactTime = pipDoc.getElementById("pip-compact-time");
+          const viewToggle = pipDoc.getElementById("pip-view-toggle");
+          const anchorEl = pipDoc.getElementById("pip-anchor");
+
+          const isCurrentVisual = resolvedVisualModeRef.current === "garden" || Boolean(resolvedVisualModeRef.current && resolvedVisualModeRef.current in HOLIDAY_THEMES);
+
+          if (isSpotifyView) {
+            if (spotifyContainer) spotifyContainer.style.display = "block";
+            if (timerView) timerView.style.display = "none";
+            if (gardenView) gardenView.style.display = "none";
+            if (trackRow) trackRow.style.display = "none";
+            if (compactTime) compactTime.style.display = "inline-block";
+            if (viewToggle) viewToggle.style.display = "none";
+            if (anchorEl) anchorEl.style.display = "none";
+            playerToggleBtn.title = "Switch to Timer View";
+            playerToggleBtn.innerHTML = '<span style="font-size: 10px;">⏱</span> <span id="pip-player-label">Timer</span>';
+          } else {
+            if (spotifyContainer) spotifyContainer.style.display = "none";
+            if (timerView) timerView.style.display = isCurrentVisual ? "none" : "flex";
+            if (gardenView) gardenView.style.display = isCurrentVisual ? "flex" : "none";
+            if (trackRow) {
+              const track = currentTrackRef.current;
+              trackRow.style.display = track?.title ? "flex" : "none";
+            }
+            if (compactTime) compactTime.style.display = "none";
+            if (viewToggle) viewToggle.style.display = "inline-flex";
+            const anchorText = typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || localStorage.getItem("dnd_session_intent") || "" : "";
+            if (anchorEl) anchorEl.style.display = anchorText ? "flex" : "none";
+            playerToggleBtn.title = "Open Spotify Player";
+            playerToggleBtn.innerHTML = '<span style="font-size: 10px;">♫</span> <span id="pip-player-label">Spotify</span>';
+          }
+        };
+      }
+
       const viewToggleBtn = pipDoc.getElementById("pip-view-toggle");
       if (viewToggleBtn) {
         viewToggleBtn.onclick = (e) => {
@@ -1117,7 +1522,7 @@ export default function MiniTimerWindow() {
       if (playBtn) {
         playBtn.onclick = (e) => {
           e.preventDefault();
-          toggleTimerRef.current();
+          handlePlayToggle();
         };
       }
 
@@ -1125,7 +1530,7 @@ export default function MiniTimerWindow() {
       if (skipBtn) {
         skipBtn.onclick = (e) => {
           e.preventDefault();
-          skipTimerRef.current();
+          handleSkip();
         };
       }
 
@@ -1137,9 +1542,140 @@ export default function MiniTimerWindow() {
         };
       }
 
+      // Initialize official Spotify EmbedController inside the PiP window if Spotify Iframe API is ready
+      const initPipController = (IFrameAPI: any) => {
+        const slot = pipDoc.getElementById("pip-spotify-slot");
+        if (!slot) return;
+        try {
+          slot.innerHTML = "";
+          const mountEl = pipDoc.createElement("div");
+          slot.appendChild(mountEl);
+
+          const initialUri =
+            (currentTrackRef.current?.uri && currentTrackRef.current.uri.startsWith("spotify:track:") ? currentTrackRef.current.uri : null) ||
+            spotifyPrefsRef.current?.lastPlayedTrackUri ||
+            spotifyPrefsRef.current?.selectedPlaylistUri ||
+            "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ";
+
+          pipLoadedUriRef.current = initialUri;
+
+          IFrameAPI.createController(
+            mountEl,
+            {
+              uri: initialUri,
+              width: "100%",
+              height: 152,
+              theme: isDark ? "dark" : "0",
+            },
+            (controller: any) => {
+              pipControllerRef.current = controller;
+              controller.addListener("playback_update", (e: any) => {
+                const isPaused = Boolean(e?.data?.isPaused);
+                const playingUri = (e?.data?.playingURI as string) || "";
+                if (!isPaused) {
+                  saveStoredSpotifyPreferences({ audioSource: "spotify" });
+                }
+                if (playingUri && playingUri.startsWith("spotify:track:")) {
+                  pipLoadedUriRef.current = playingUri;
+                  saveStoredSpotifyPreferences({
+                    audioSource: "spotify",
+                    lastPlayedTrackUri: playingUri,
+                  });
+                }
+              });
+            }
+          );
+        } catch (e) {
+          console.warn("Could not create PiP Spotify EmbedController", e);
+        }
+      };
+
+      if (typeof window !== "undefined" && window.SpotifyIframeApi) {
+        initPipController(window.SpotifyIframeApi);
+      }
+
+      // Forward messages from PiP window to main window so IFrameAPI handshake succeeds
+      const forwardPipMessage = (ev: MessageEvent) => {
+        try {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: ev.data,
+              origin: ev.origin,
+              source: ev.source,
+            })
+          );
+        } catch {}
+      };
+      pip.addEventListener("message", forwardPipMessage);
+
+      // Listen to Spotify embed messages inside Document PiP (when user clicks/changes track in PiP iframe)
+      const handlePipSpotifyMessage = async (e: MessageEvent) => {
+        try {
+          let data = e.data;
+          if (typeof data === "string") {
+            try {
+              data = JSON.parse(data);
+            } catch {}
+          }
+          if (!data) return;
+
+          // Check for pause/play state
+          if (data.type === "playback_update" || data.type === "playback_state") {
+            const isPaused = Boolean(data.data?.isPaused ?? data.isPaused);
+            const current = currentTrackRef.current || getCurrentPlayingTrack();
+            setCurrentPlayingTrack({
+              ...current,
+              isPlaying: !isPaused,
+            });
+          }
+
+          let trackUri = "";
+          if (typeof data.data?.playingURI === "string" && data.data.playingURI.startsWith("spotify:track:")) {
+            trackUri = data.data.playingURI;
+          } else if (typeof data.playingURI === "string" && data.playingURI.startsWith("spotify:track:")) {
+            trackUri = data.playingURI;
+          } else if (typeof data.uri === "string" && data.uri.startsWith("spotify:track:")) {
+            trackUri = data.uri;
+          }
+
+          if (trackUri) {
+            pipLoadedUriRef.current = trackUri;
+            saveStoredSpotifyPreferences({
+              audioSource: "spotify",
+              lastPlayedTrackUri: trackUri,
+            });
+
+            try {
+              const res = await fetch(`/api/spotify/current-track?uri=${encodeURIComponent(trackUri)}`);
+              if (res.ok) {
+                const trackData = await res.json();
+                if (trackData.title) {
+                  setCurrentPlayingTrack({
+                    title: trackData.title,
+                    artist: trackData.artist || "Spotify",
+                    artworkUrl: trackData.artworkUrl,
+                    source: "spotify",
+                    isPlaying: true,
+                    uri: trackUri,
+                  });
+                }
+              }
+            } catch {}
+          }
+        } catch {}
+      };
+
+      pip.addEventListener("message", handlePipSpotifyMessage);
+      window.addEventListener("message", handlePipSpotifyMessage);
+
       pip.addEventListener("pagehide", () => {
         setIsMiniWindowActive(false);
         pipWindowRef.current = null;
+        pipControllerRef.current = null;
+        pipLoadedUriRef.current = null;
+        pip.removeEventListener("message", forwardPipMessage);
+        pip.removeEventListener("message", handlePipSpotifyMessage);
+        window.removeEventListener("message", handlePipSpotifyMessage);
       });
 
       return true;
@@ -1164,6 +1700,10 @@ export default function MiniTimerWindow() {
     visualMode,
     resolvedVisualMode,
     setIsMiniWindowActive,
+    currentTrack,
+    spotifyPrefs,
+    handlePlayToggle,
+    handleSkip,
   ]);
 
   // Video-based Picture-in-Picture fallback
