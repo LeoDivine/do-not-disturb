@@ -192,3 +192,13 @@ When you click **Sign out** in the user navigation menu:
 - A confirmation dialog informs you that your cloud data is safely saved in PostgreSQL.
 - **Personal Laptops**: Choose **Sign out (Keep Local Copy)** to retain your cached sessions, settings, and presets for offline guest use.
 - **Shared / Public Computers**: Choose **Sign out & Clear Device** to wipe all local browser cache, deflection logs, and focus sprint records from that computer before leaving.
+
+---
+
+## 9. Platform Tour for First-Time Users
+
+When opening Do Not Disturb for the first time, a gentle, minimalist walkthrough welcomes you to the platform:
+- **First-Timer Tracking**: Your tour status is tracked completely offline in `localStorage` (`dnd_platform_tour_seen`), ensuring returning users are never repeatedly interrupted.
+- **Serene Minimalism**: Designed strictly without loud badges, pills, or gamified banners, adhering to the Serene Focus aesthetic.
+- **Step-by-Step Overview**: Explains focus rhythms, acoustic soundscapes, distraction deflection shields, and mindful streak momentum.
+- **Replay Anytime**: You can restart or review the tour at any point by clicking **Platform Tour** in the footer, opening the user menu, or choosing **Take Platform Tour** in **Settings** (`/settings`).

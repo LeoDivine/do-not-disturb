@@ -5,11 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "../context/theme-context";
 import { useTimer } from "../context/timer-context";
+import { useTour } from "../context/tour-context";
 
 export default function Footer() {
   const pathname = usePathname();
   const { isDark } = useTheme();
   const { activeColor, colors } = useTimer();
+  const { startTour } = useTour();
 
   // Hide the global footer on the blocked page
   if (pathname === "/blocked") {
@@ -57,6 +59,13 @@ export default function Footer() {
           >
             Keyboard Shortcuts
           </Link>
+          <button
+            type="button"
+            onClick={() => startTour(0)}
+            className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:opacity-100 py-1 text-inherit hover:text-[#0f172a] dark:hover:text-white"
+          >
+            Platform Tour
+          </button>
         </div>
       </div>
     </footer>
