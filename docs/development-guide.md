@@ -33,9 +33,15 @@ NEXT_PUBLIC_APP_URL="http://localhost:3000"
 SUPERADMIN_EMAIL="admin@example.com"
 # Optional comma-separated list of additional superadmin emails
 SUPERADMIN_EMAILS="admin@example.com"
+
+# Spotify Integration (Optional for local development; enables library sync & playback controls)
+SPOTIFY_CLIENT_ID="your_spotify_client_id"
+SPOTIFY_CLIENT_SECRET="your_spotify_client_secret"
+SPOTIFY_REDIRECT_URI="http://127.0.0.1:3000/callback"
 ```
 
 > **Note:** If using a managed database provider requiring SSL, append `?sslmode=require` to `DATABASE_URL`.
+> **Spotify Redirect URI Tip:** Use `http://127.0.0.1:3000/callback` for local development. Spotify Developer Dashboard requires exact URI matches and treats `127.0.0.1` and `localhost` as distinct origins.
 
 ---
 
@@ -111,9 +117,31 @@ Whenever you modify files in `extension/` (`background.js`, `content.js`, `manif
 
 ---
 
-## 6. Repository Layout & Scripts
+## 6. Setting Up Spotify Developer Integration
 
-### 6.1 Key Directory Map
+To test personal Spotify playlist sync, library fetching, and playback controls in local development:
+
+1. Visit the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and create a free developer app.
+2. Under **Redirect URIs**, add:
+   - `http://127.0.0.1:3000/callback`
+   - `http://localhost:3000/callback`
+   - `http://127.0.0.1:3000/api/spotify/callback`
+   - `http://localhost:3000/api/spotify/callback`
+3. Under **Which APIs are you planning to use?**, select **Web API** and **Web Playback SDK**.
+4. Copy your **Client ID** and **Client Secret** into `.env`:
+   ```env
+   SPOTIFY_CLIENT_ID="<your_client_id>"
+   SPOTIFY_CLIENT_SECRET="<your_client_secret>"
+   SPOTIFY_REDIRECT_URI="http://127.0.0.1:3000/callback"
+   ```
+5. Restart your development server (`pnpm dev`). Open `http://127.0.0.1:3000`, toggle the audio source to **Spotify**, and click **Connect Spotify** to authorize the connection.
+6. For architecture details, OAuth code exchange sequence diagrams, and token security, refer to the [Spotify Integration Guide](spotify-integration.md).
+
+---
+
+## 7. Repository Layout & Scripts
+
+### 7.1 Key Directory Map
 
 ```text
 do-not-disturb/

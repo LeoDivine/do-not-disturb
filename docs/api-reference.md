@@ -195,6 +195,7 @@ Fetches all user data from PostgreSQL, including blocklists, shortcuts, settings
     "acousticPreset": "rain",
     "bgAmbienceVolume": 65,
     "completionChime": true,
+    "autoPlayAudio": true,
     "theme": "SYSTEM"
   },
   "presets": [
@@ -430,3 +431,211 @@ Permanently deletes a non-superadmin user account and all associated focus sessi
 - `400 Bad Request`: Attempted to delete own account or a protected Superadmin account.
 - `403 Forbidden`: Caller is not a Superadmin.
 - `404 Not Found`: Target user ID does not exist.
+
+---
+
+## 7. Spotify Integration Endpoints
+
+All Spotify endpoints operate statelessly with token sessions encrypted in the `dnd_spotify_session` HTTP-only cookie. Tokens are refreshed silently in the background when expired.
+
+### 7.1 Initiate Spotify Authorization
+Generates a cryptographically secure CSRF state token, stores it in the `dnd_spotify_oauth_state` cookie (10-minute expiry), and redirects the user to the Spotify Accounts authorization portal. When invoked with `?format=json`, returns whether Spotify client credentials are configured.
+
+- **Method**: `GET`
+- **Path**: `/api/spotify/auth`
+- **Query Parameters**:
+  - `format` *(optional)*: `json` — returns configuration status instead of triggering redirect.
+
+#### Response (`format=json`, 200 OK)
+```json
+{
+  "configured": true,
+  "redirectUri": "http://127.0.0.1:3000/callback"
+}
+```
+
+#### Response (Standard browser navigation)
+- HTTP `302 Redirect` to `https://accounts.spotify.com/authorize?response_type=code&client_id=...&scope=...&redirect_uri=...&state=...&show_dialog=true`
+- Sets cookie: `dnd_spotify_oauth_state=<24-byte-hex-state>; HttpOnly; SameSite=Lax; Max-Age=600; Path=/`
+
+---
+
+### 7.2 Spotify OAuth Callback (Redirect Mode)
+Target endpoint when `SPOTIFY_REDIRECT_URI` points directly to `/api/spotify/callback`. Verifies CSRF state, exchanges the authorization code for access and refresh tokens, fetches user profile information, seals the session with AES-256-GCM, and redirects to `/callback`.
+
+- **Method**: `GET`
+- **Path**: `/api/spotify/callback`
+- **Query Parameters**:
+  - `code` *(required on success)*: Single-use Spotify authorization code.
+  - `state` *(required)*: CSRF state token to verify against `dnd_spotify_oauth_state` cookie.
+  - `error` *(optional)*: Error code if authentication was denied or cancelled by the user.
+
+#### Response (302 Redirect)
+- Success: Redirects to `/callback?status=success&provider=spotify&account=<displayName>` with `dnd_spotify_session` cookie set.
+- Error / Cancelled: Redirects to `/callback?status=error&provider=spotify&error=<errorCode>&message=<message>`.
+
+---
+
+### 7.3 Spotify OAuth Callback (Client Exchange Mode)
+Used by `app/callback/page.tsx` when `SPOTIFY_REDIRECT_URI` points to the frontend page `/callback`. Enables frontend-mediated single-use authorization code exchange, protecting against React Strict Mode duplicate invocations via in-memory deduplication.
+
+- **Method**: `POST`
+- **Path**: `/api/spotify/callback`
+- **Content-Type**: `application/json`
+
+#### Request Body
+```json
+{
+  "code": "AQB_1234567890_code",
+  "state": "8a3d...csrf_state",
+  "redirectUri": "http://127.0.0.1:3000/callback"
+}
+```
+
+#### Response (200 OK)
+```json
+{
+  "ok": true,
+  "user": {
+    "id": "spotify_user_id",
+    "displayName": "Alex Mercer",
+    "email": "alex@example.com",
+    "avatarUrl": "https://i.scdn.co/image/ab6775700000ee85...",
+    "product": "premium",
+    "profileUrl": "https://open.spotify.com/user/spotify_user_id"
+  }
+}
+```
+
+#### Error Codes
+- `400 Bad Request`: Code missing, invalid/expired code, or CSRF state mismatch.
+- `500 Internal Server Error`: Spotify Accounts service unreachable.
+
+---
+
+### 7.4 Check Spotify Connection Status
+Returns whether Spotify credentials are configured on the server, whether the current user has an active, authenticated Spotify session, and the associated profile details.
+
+- **Method**: `GET`
+- **Path**: `/api/spotify/status`
+
+#### Response (Connected, 200 OK)
+```json
+{
+  "configured": true,
+  "connected": true,
+  "redirectUri": "http://127.0.0.1:3000/callback",
+  "user": {
+    "id": "spotify_user_id",
+    "displayName": "Alex Mercer",
+    "email": "alex@example.com",
+    "avatarUrl": "https://i.scdn.co/image/...",
+    "product": "premium",
+    "profileUrl": "https://open.spotify.com/user/spotify_user_id"
+  }
+}
+```
+
+#### Response (Disconnected, 200 OK)
+```json
+{
+  "configured": true,
+  "connected": false,
+  "redirectUri": "http://127.0.0.1:3000/callback",
+  "user": null
+}
+```
+
+---
+
+### 7.5 Disconnect Spotify Account
+Disconnects Spotify by clearing the encrypted `dnd_spotify_session` session cookie.
+
+- **Method**: `DELETE`
+- **Path**: `/api/spotify/status`
+
+#### Response (200 OK)
+```json
+{
+  "success": true,
+  "connected": false
+}
+```
+
+---
+
+### 7.6 Retrieve Spotify Playlists
+Fetches the authenticated user's private and public playlists (up to 50 items) from the Spotify Web API. If unauthenticated, returns the built-in curated instrumental focus playlists.
+
+- **Method**: `GET`
+- **Path**: `/api/spotify/playlists`
+
+#### Response (200 OK)
+```json
+{
+  "connected": true,
+  "user": {
+    "displayName": "Alex Mercer"
+  },
+  "playlists": [
+    {
+      "id": "37i9dQZF1DWZeKCadgRdKQ",
+      "uri": "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ",
+      "name": "Deep Focus",
+      "description": "Keep calm and focus with ambient and post-rock textures.",
+      "imageUrl": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=360&q=80",
+      "tracksTotal": 185,
+      "ownerName": "Spotify Focus",
+      "externalUrl": "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ",
+      "isCurated": false
+    }
+  ],
+  "curated": [
+    {
+      "id": "37i9dQZF1DWZeKCadgRdKQ",
+      "uri": "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ",
+      "name": "Deep Focus",
+      "description": "Keep calm and focus with ambient and post-rock textures.",
+      "imageUrl": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=360&q=80",
+      "tracksTotal": 185,
+      "ownerName": "Spotify Focus",
+      "externalUrl": "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ",
+      "isCurated": true
+    }
+  ]
+}
+```
+
+---
+
+### 7.7 Query Active or Specific Track Metadata
+Fetches track details (name, artist, album, artwork URL) for a given Spotify track ID or URI, or queries the currently active playback session. Automatically falls back to Spotify's public oEmbed service if the user is unauthenticated or the Web API call fails.
+
+- **Method**: `GET`
+- **Path**: `/api/spotify/current-track`
+- **Query Parameters**:
+  - `uri` *(optional)*: Full track URI (e.g. `spotify:track:4cOdK2wGLETKBW3PvgPWqT`).
+  - `id` *(optional)*: Alphanumeric Spotify track ID (e.g. `4cOdK2wGLETKBW3PvgPWqT`).
+
+#### Response (Track Found, 200 OK)
+```json
+{
+  "success": true,
+  "title": "Time",
+  "artist": "Hans Zimmer",
+  "album": "Inception (Original Motion Picture Soundtrack)",
+  "artworkUrl": "https://i.scdn.co/image/ab67616d0000b273...",
+  "uri": "spotify:track:4cOdK2wGLETKBW3PvgPWqT",
+  "isPlaying": true
+}
+```
+
+#### Response (No Active Track Playing, 200 OK)
+```json
+{
+  "success": true,
+  "isPlaying": false,
+  "title": "",
+  "artist": ""
+}
+```

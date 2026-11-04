@@ -30,6 +30,15 @@ import {
 	HolidayId,
 	HOLIDAY_THEMES,
 } from "../components/gamification/holiday-themes";
+import {
+	SpotifyStoredPreference,
+	DEFAULT_SPOTIFY_PREFS,
+	getStoredSpotifyPreferences,
+	saveStoredSpotifyPreferences,
+	subscribeToSpotifyPreferences,
+} from "../lib/spotify/spotify-store";
+import SpotifyFocusPlayer from "../components/spotify/spotify-focus-player";
+import { setCurrentPlayingTrack, subscribeToCurrentPlayingTrack } from "../lib/sound/current-track-store";
 
 const PRESET_IMAGES: Record<AcousticPreset, string> = {
 	rain: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=360&q=80",
@@ -176,15 +185,22 @@ export default function DashboardPage() {
 		}
 	};
 
-	// Ambient sound state (Real Web Audio Synth)
+	// Ambient sound state (Real Web Audio Synth) & Spotify Preferences
 	const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
 	const [ambientPreset, setAmbientPreset] = useState<AcousticPreset>("rain");
 	const [audioVolume, setAudioVolume] = useState<number>(0.65);
-	const [userLevel, setUserLevel] = useState<number>(() => {
-		return getStoredGamification().level;
-	});
+	const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(DEFAULT_SPOTIFY_PREFS);
+	const [userLevel, setUserLevel] = useState<number>(1);
 
 	useEffect(() => {
+		setSpotifyPrefs(getStoredSpotifyPreferences());
+		return subscribeToSpotifyPreferences((updated) => {
+			setSpotifyPrefs(updated);
+		});
+	}, []);
+
+	useEffect(() => {
+		setUserLevel(getStoredGamification().level);
 		const handleGamification = () => {
 			setUserLevel(getStoredGamification().level);
 		};
@@ -199,6 +215,11 @@ export default function DashboardPage() {
 			);
 		};
 	}, []);
+
+	const isRunningRef = useRef(isRunning);
+	useEffect(() => {
+		isRunningRef.current = isRunning;
+	}, [isRunning]);
 
 	useEffect(() => {
 		const loadSettings = () => {
@@ -230,10 +251,36 @@ export default function DashboardPage() {
 				"dnd-settings-updated" as any,
 				loadSettings,
 			);
-			const synth = getSoundSynth();
-			synth.stop();
+			if (!isRunningRef.current) {
+				const synth = getSoundSynth();
+				synth.stop();
+			}
 		};
 	}, []);
+
+
+
+	// Sync local ambient state with external changes (mini popup window or global triggers)
+	useEffect(() => {
+		return subscribeToCurrentPlayingTrack((track) => {
+			if (track.source === "ambient") {
+				setIsAudioPlaying(track.isPlaying);
+			}
+		});
+	}, []);
+
+	// Broadcast currently playing ambient sound for mini pop view and media controls
+	useEffect(() => {
+		if (spotifyPrefs.audioSource === "spotify") return;
+
+		const presetInfo = ACOUSTIC_PRESETS[ambientPreset];
+		setCurrentPlayingTrack({
+			title: presetInfo?.name || "Gentle Rain",
+			artist: "Ambient Soundscape",
+			source: "ambient",
+			isPlaying: isAudioPlaying,
+		});
+	}, [isAudioPlaying, ambientPreset, spotifyPrefs.audioSource]);
 
 	const toggleAudio = () => {
 		const synth = getSoundSynth();
@@ -929,173 +976,246 @@ export default function DashboardPage() {
 							</button>
 						</div>
 
-						{/* Ambient Soundscape Bar (Compact & responsive across mobile & desktop) */}
-						<div
-							className={`p-3 sm:p-3.5 rounded-xl border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 transition-colors relative overflow-hidden ${
-								isDark ?
-									"bg-[#0b0f17] border-[#1d2634] text-[#f1f5f9]"
-								:	"bg-[#f8fafc] border-[#e2e8f0] text-[#0f172a]"
-							}`}
-						>
-							<div className="flex items-center gap-3 relative z-10 min-w-0">
-								<button
-									type="button"
-									onClick={toggleAudio}
-									aria-label={
-										isAudioPlaying ?
-											"Pause background sound"
-										:	"Play background sound"
-									}
-									className="w-10 h-10 rounded-lg overflow-hidden relative cursor-pointer group shrink-0 border border-[#e2e8f0] dark:border-[#1d2634] transition-transform active:scale-95 shadow-sm"
+						{/* Focus Audio Source Switcher (Ambient Synth vs Spotify) */}
+						<div className="flex flex-col gap-3">
+							<div className="flex items-center justify-between gap-2">
+								<span
+									className={`text-[10.5px] font-bold uppercase tracking-wider ${
+										isDark ? "text-[#7e8c9f]" : "text-[#64748b]"
+									}`}
 								>
-									<img
-										src={
-											PRESET_IMAGES[ambientPreset] ||
-											PRESET_IMAGES.rain
-										}
-										alt={`${ACOUSTIC_PRESETS[ambientPreset]?.name || "Ambient"} soundscape`}
-										className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-									/>
-									<div className="absolute inset-0 bg-black/40 flex items-center justify-center transition-colors group-hover:bg-black/50">
-										{isAudioPlaying ?
-											<svg
-												className="w-4 h-4 text-white fill-current"
-												viewBox="0 0 24 24"
+									Focus Session Audio
+								</span>
+								<div
+									className={`inline-flex items-center p-0.5 rounded-lg border text-[11px] ${
+										isDark
+											? "bg-[#0b0f17] border-[#1c2432]"
+											: "bg-[#f1f5f9] border-[#cbd5e1]"
+									}`}
+								>
+									{(
+										[
+											{ id: "ambient", label: "Ambient Sound" },
+											{ id: "spotify", label: "Spotify" },
+										] as const
+									).map((tab) => {
+										const active =
+											(spotifyPrefs.audioSource === "spotify"
+												? "spotify"
+												: "ambient") === tab.id;
+										return (
+											<button
+												key={tab.id}
+												type="button"
+												onClick={() =>
+													saveStoredSpotifyPreferences({
+														audioSource: tab.id,
+													})
+												}
+												className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+													active
+														? "font-semibold shadow-2xs"
+														: isDark
+														? "text-[#7e8c9f] hover:text-white"
+														: "text-[#64748b] hover:text-[#0f172a]"
+												}`}
+												style={
+													active
+														? {
+																backgroundColor: isDark
+																	? colors.containerDark
+																	: "#ffffff",
+																color: activeColor,
+														  }
+														: undefined
+												}
 											>
-												<rect
-													x="6"
-													y="4"
-													width="4"
-													height="16"
-													rx="1"
-												/>
-												<rect
-													x="14"
-													y="4"
-													width="4"
-													height="16"
-													rx="1"
-												/>
-											</svg>
-										:	<svg
-												className="w-4 h-4 text-white fill-current ml-0.5"
-												viewBox="0 0 24 24"
-											>
-												<polygon points="5 3 19 12 5 21 5 3" />
-											</svg>
-										}
-									</div>
-								</button>
-								<div className="min-w-0 flex-1">
-									<div className="flex items-center gap-2 flex-wrap">
-										<span
-											className={`text-xs font-semibold truncate ${isDark ? "text-white" : "text-[#0f172a]"}`}
-										>
-											{ACOUSTIC_PRESETS[ambientPreset]
-												?.name || "Gentle Rain"}
-										</span>
-										<span
-											className={`text-[10px] hidden sm:inline ${isDark ? "text-slate-400" : "text-slate-500"}`}
-										>
-											(
-											{
-												ACOUSTIC_PRESETS[ambientPreset]
-													?.subtitle
-											}
-											)
-										</span>
-										{isAudioPlaying && (
-											<span
-												className="text-[10px] px-1.5 py-0.2 rounded font-medium shrink-0"
-												style={{
-													backgroundColor:
-														isDark ?
-															colors.containerDark
-														:	colors.container,
-													color: activeColor,
-												}}
-											>
-												Playing
-											</span>
-										)}
-									</div>
-									<p
-										className={`text-[11px] truncate mt-0.5 ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}
-									>
-										{ACOUSTIC_PRESETS[ambientPreset]
-											?.description ||
-											"Peaceful ambient sound"}
-									</p>
+												{tab.label}
+											</button>
+										);
+									})}
 								</div>
 							</div>
 
-							{/* Volume Slider & Audio Waves */}
-							<div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#e2e8f0]/60 dark:border-[#1d2634]/60 w-full sm:w-auto">
+							{/* Ambient Soundscape Bar (shown when audioSource is "ambient") */}
+							{spotifyPrefs.audioSource !== "spotify" && (
 								<div
-									className="flex items-end gap-1 h-3.5"
-									aria-hidden="true"
+									className={`p-3 sm:p-3.5 rounded-xl border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 transition-colors relative overflow-hidden ${
+										isDark
+											? "bg-[#0b0f17] border-[#1d2634] text-[#f1f5f9]"
+											: "bg-[#f8fafc] border-[#e2e8f0] text-[#0f172a]"
+									}`}
 								>
-									<span
-										className={`w-1 rounded-full transition-all ${isAudioPlaying ? "animate-eq-1" : ""}`}
-										style={{
-											height:
-												isAudioPlaying ? undefined : (
-													"6px"
-												),
-											backgroundColor:
-												isAudioPlaying ? activeColor
-												: isDark ? "#7e8c9f"
-												: "#94a3b8",
-										}}
-									/>
-									<span
-										className={`w-1 rounded-full transition-all ${isAudioPlaying ? "animate-eq-2" : ""}`}
-										style={{
-											height:
-												isAudioPlaying ? undefined : (
-													"8px"
-												),
-											backgroundColor:
-												isAudioPlaying ? activeColor
-												: isDark ? "#7e8c9f"
-												: "#94a3b8",
-										}}
-									/>
-									<span
-										className={`w-1 rounded-full transition-all ${isAudioPlaying ? "animate-eq-3" : ""}`}
-										style={{
-											height:
-												isAudioPlaying ? undefined : (
-													"4px"
-												),
-											backgroundColor:
-												isAudioPlaying ? activeColor
-												: isDark ? "#7e8c9f"
-												: "#94a3b8",
-										}}
-									/>
+									<div className="flex items-center gap-3 relative z-10 min-w-0">
+										<button
+											type="button"
+											onClick={toggleAudio}
+											aria-label={
+												isAudioPlaying
+													? "Pause background sound"
+													: "Play background sound"
+											}
+											className="w-10 h-10 rounded-lg overflow-hidden relative cursor-pointer group shrink-0 border border-[#e2e8f0] dark:border-[#1d2634] transition-transform active:scale-95 shadow-sm"
+										>
+											<img
+												src={
+													PRESET_IMAGES[ambientPreset] ||
+													PRESET_IMAGES.rain
+												}
+												alt={`${ACOUSTIC_PRESETS[ambientPreset]?.name || "Ambient"} soundscape`}
+												className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+											/>
+											<div className="absolute inset-0 bg-black/40 flex items-center justify-center transition-colors group-hover:bg-black/50">
+												{isAudioPlaying ? (
+													<svg
+														className="w-4 h-4 text-white fill-current"
+														viewBox="0 0 24 24"
+													>
+														<rect
+															x="6"
+															y="4"
+															width="4"
+															height="16"
+															rx="1"
+														/>
+														<rect
+															x="14"
+															y="4"
+															width="4"
+															height="16"
+															rx="1"
+														/>
+													</svg>
+												) : (
+													<svg
+														className="w-4 h-4 text-white fill-current ml-0.5"
+														viewBox="0 0 24 24"
+													>
+														<polygon points="5 3 19 12 5 21 5 3" />
+													</svg>
+												)}
+											</div>
+										</button>
+										<div className="min-w-0 flex-1">
+											<div className="flex items-center gap-2 flex-wrap">
+												<span
+													className={`text-xs font-semibold truncate ${
+														isDark ? "text-white" : "text-[#0f172a]"
+													}`}
+												>
+													{ACOUSTIC_PRESETS[ambientPreset]?.name ||
+														"Gentle Rain"}
+												</span>
+												<span
+													className={`text-[10px] hidden sm:inline ${
+														isDark ? "text-slate-400" : "text-slate-500"
+													}`}
+												>
+													({ACOUSTIC_PRESETS[ambientPreset]?.subtitle})
+												</span>
+												{isAudioPlaying && (
+													<span
+														className="text-[10px] px-1.5 py-0.2 rounded font-medium shrink-0"
+														style={{
+															backgroundColor: isDark
+																? colors.containerDark
+																: colors.container,
+															color: activeColor,
+														}}
+													>
+														Playing
+													</span>
+												)}
+											</div>
+											<p
+												className={`text-[11px] truncate mt-0.5 ${
+													isDark ? "text-[#7e8c9f]" : "text-[#64748b]"
+												}`}
+											>
+												{ACOUSTIC_PRESETS[ambientPreset]?.description ||
+													"Peaceful ambient sound"}
+											</p>
+										</div>
+									</div>
+
+									{/* Volume Slider & Audio Waves */}
+									<div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#e2e8f0]/60 dark:border-[#1d2634]/60 w-full sm:w-auto">
+										<div
+											className="flex items-end gap-1 h-3.5"
+											aria-hidden="true"
+										>
+											<span
+												className={`w-1 rounded-full transition-all ${
+													isAudioPlaying ? "animate-eq-1" : ""
+												}`}
+												style={{
+													height: isAudioPlaying ? undefined : "6px",
+													backgroundColor: isAudioPlaying
+														? activeColor
+														: isDark
+														? "#7e8c9f"
+														: "#94a3b8",
+												}}
+											/>
+											<span
+												className={`w-1 rounded-full transition-all ${
+													isAudioPlaying ? "animate-eq-2" : ""
+												}`}
+												style={{
+													height: isAudioPlaying ? undefined : "8px",
+													backgroundColor: isAudioPlaying
+														? activeColor
+														: isDark
+														? "#7e8c9f"
+														: "#94a3b8",
+												}}
+											/>
+											<span
+												className={`w-1 rounded-full transition-all ${
+													isAudioPlaying ? "animate-eq-3" : ""
+												}`}
+												style={{
+													height: isAudioPlaying ? undefined : "4px",
+													backgroundColor: isAudioPlaying
+														? activeColor
+														: isDark
+														? "#7e8c9f"
+														: "#94a3b8",
+												}}
+											/>
+										</div>
+										<input
+											type="range"
+											min="0"
+											max="1"
+											step="0.01"
+											aria-label="Sound volume"
+											value={audioVolume}
+											onChange={(e) =>
+												handleVolumeChange(
+													parseFloat(e.target.value),
+												)
+											}
+											className={`flex-1 sm:w-20 sm:flex-initial h-1.5 sm:h-1 rounded-lg cursor-pointer ${
+												isDark ? "bg-[#222d3d]" : "bg-[#cbd5e1]"
+											}`}
+											style={{ accentColor: activeColor }}
+										/>
+										<span
+											className={`text-xs font-mono w-7 text-right ${
+												isDark ? "text-[#7e8c9f]" : "text-[#64748b]"
+											}`}
+										>
+											{Math.round(audioVolume * 100)}%
+										</span>
+									</div>
 								</div>
-								<input
-									type="range"
-									min="0"
-									max="1"
-									step="0.01"
-									aria-label="Sound volume"
-									value={audioVolume}
-									onChange={(e) =>
-										handleVolumeChange(
-											parseFloat(e.target.value),
-										)
-									}
-									className={`flex-1 sm:w-20 sm:flex-initial h-1.5 sm:h-1 rounded-lg cursor-pointer ${isDark ? "bg-[#222d3d]" : "bg-[#cbd5e1]"}`}
-									style={{ accentColor: activeColor }}
-								/>
-								<span
-									className={`text-xs font-mono w-7 text-right ${isDark ? "text-[#7e8c9f]" : "text-[#64748b]"}`}
-								>
-									{Math.round(audioVolume * 100)}%
-								</span>
-							</div>
+							)}
+
+							{/* Spotify Focus Player (shown when audioSource is "spotify") */}
+							{spotifyPrefs.audioSource === "spotify" && (
+								<SpotifyFocusPlayer compact />
+							)}
 						</div>
 					</div>
 

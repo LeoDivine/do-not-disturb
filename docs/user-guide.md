@@ -90,6 +90,22 @@ Do Not Disturb features an offline-capable, procedural sound generator that runs
 
 When a focus or break interval reaches zero, Do Not Disturb sounds an acoustic meditation chime (modeled after a traditional Tibetan singing bowl). You can toggle this on or off in `/settings`.
 
+### 4.3 Spotify Focus Music & Playlists
+
+In addition to procedural ambient sounds, you can play focus music directly from Spotify on the main dashboard (`/`):
+
+1. **Toggle Audio Source**: Click the **Spotify** tab in the *Focus Session Audio* selector above the audio card.
+2. **Curated Focus Library**: If you don't connect an account, choose from five built-in, ad-free focus playlists (*Deep Focus*, *Lo-Fi Beats*, *Peaceful Piano*, *Chill Lofi Study*, or *Coding Mode*).
+3. **Connect Your Spotify Account**: Click **Connect Spotify** in the player or visit `/connected-apps` to authorize your personal library. Once connected, your personal and saved playlists appear in the playlist selector drawer. You can also disconnect at any time from `/connected-apps`.
+4. **Paste Any Playlist, Album, or Track**: Use the custom URL input to paste any Spotify web link (e.g. `https://open.spotify.com/playlist/...`), album URL, or Spotify URI (`spotify:playlist:...`).
+5. **Session Continuity & Track Memory**: Pausing your timer or stepping away keeps your place in the playlist. When you resume, Do Not Disturb continues from the exact track you were listening to.
+
+### 4.4 Timer Playback Coordination & Picture-in-Picture
+
+- **Auto-Play on Focus ("Play audio when timer starts")**: When enabled in `/settings`, starting a focus session automatically starts your selected Spotify playlist or ambient soundscape. This setting automatically synchronizes to your cloud profile across devices.
+- **Auto-Pause on Breaks**: When your focus block ends or you pause the timer, music automatically pauses so you can rest.
+- **Picture-in-Picture (PiP) Window**: Click the popout icon to open the floating mini timer window. The mini timer mirrors active Spotify album artwork, song titles, and artist names, and relays play/pause commands back to the main window.
+
 ---
 
 ## 5. Gamification, Flow Progression & Zen Sanctuary

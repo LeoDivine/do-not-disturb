@@ -58,6 +58,7 @@ erDiagram
         string acousticPreset
         int bgAmbienceVolume
         boolean completionChime
+        boolean autoPlayAudio
         enum theme
     }
 
@@ -171,6 +172,7 @@ One-to-one user configuration for timer intervals, audio presets, and blocking p
 | `acousticPreset` | String | `"rain"` | Default ambient sound ("rain", "binaural", "space"). |
 | `bgAmbienceVolume`| Int | `65` | Ambience volume level (0–100%). |
 | `completionChime` | Boolean| `true` | Play chime sound upon session completion. |
+| `autoPlayAudio` | Boolean| `true` | Play audio automatically when timer starts. |
 | `theme` | Enum | `SYSTEM` | Visual theme mode. |
 
 ---

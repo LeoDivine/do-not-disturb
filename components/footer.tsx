@@ -27,6 +27,12 @@ export default function Footer() {
         </p>
         <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-4 sm:gap-x-6 gap-y-2">
           <Link
+            href="/connected-apps"
+            className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:opacity-100 py-1"
+          >
+            Connected Apps
+          </Link>
+          <Link
             href="/tips"
             className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:opacity-100 py-1"
           >

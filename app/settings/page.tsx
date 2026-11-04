@@ -15,37 +15,123 @@ import {
   subscribeToSettings,
   DEFAULT_SETTINGS,
 } from "../../lib/settings/settings-store";
+import {
+  SpotifyStoredPreference,
+  SpotifyPlaylistItem,
+  CURATED_FOCUS_PLAYLISTS,
+  DEFAULT_SPOTIFY_PREFS,
+  getStoredSpotifyPreferences,
+  saveStoredSpotifyPreferences,
+  subscribeToSpotifyPreferences,
+  SPOTIFY_AUTH_UPDATED_EVENT,
+} from "../../lib/spotify/spotify-store";
+import { useCloseOnEscape } from "../../lib/overlays/use-close-on-escape";
 
 export default function SettingsPage() {
   const { isDark } = useTheme();
-  const { mode, colors, allModeColors, activeColor, activeBorder } = useTimer();
+  const { mode, isRunning, colors, allModeColors, activeColor, activeBorder } = useTimer();
   const { storageMode, user, openSyncModal } = useSync();
 
-  // Settings states initialized from single source of truth
-  const [deepFocusMins, setDeepFocusMins] = useState<number>(() => getStoredSettings().deepFocusMinutes);
-  const [shortBreakMins, setShortBreakMins] = useState<number>(() => getStoredSettings().shortBreakMinutes);
-  const [longBreakMins, setLongBreakMins] = useState<number>(() => getStoredSettings().longBreakMinutes);
-  const [longBreakCadence, setLongBreakCadence] = useState<number>(() => getStoredSettings().longBreakCadence);
-  const [autoStartBreaks, setAutoStartBreaks] = useState<boolean>(() => getStoredSettings().autoStartBreaks);
-  const [autoStartFocus, setAutoStartFocus] = useState<boolean>(() => getStoredSettings().autoStartFocus);
-  const [strictBlocking, setStrictBlocking] = useState<"suspend" | "strict">(() =>
-    getStoredSettings().strictBlocking === "SUSPEND" ? "suspend" : "strict"
+  // Settings states initialized with defaults to prevent SSR hydration mismatch
+  const [deepFocusMins, setDeepFocusMins] = useState<number>(DEFAULT_SETTINGS.deepFocusMinutes);
+  const [shortBreakMins, setShortBreakMins] = useState<number>(DEFAULT_SETTINGS.shortBreakMinutes);
+  const [longBreakMins, setLongBreakMins] = useState<number>(DEFAULT_SETTINGS.longBreakMinutes);
+  const [longBreakCadence, setLongBreakCadence] = useState<number>(DEFAULT_SETTINGS.longBreakCadence);
+  const [autoStartBreaks, setAutoStartBreaks] = useState<boolean>(DEFAULT_SETTINGS.autoStartBreaks);
+  const [autoStartFocus, setAutoStartFocus] = useState<boolean>(DEFAULT_SETTINGS.autoStartFocus);
+  const [strictBlocking, setStrictBlocking] = useState<"suspend" | "strict">(
+    DEFAULT_SETTINGS.strictBlocking === "SUSPEND" ? "suspend" : "strict"
   );
-  const [acousticPreset, setAcousticPreset] = useState<AcousticPreset>(() => getStoredSettings().acousticPreset as AcousticPreset);
-  const [bgAmbience, setBgAmbience] = useState<number>(() => getStoredSettings().bgAmbienceVolume);
-  const [completionChime, setCompletionChime] = useState<boolean>(() => getStoredSettings().completionChime);
+  const [acousticPreset, setAcousticPreset] = useState<AcousticPreset>(DEFAULT_SETTINGS.acousticPreset as AcousticPreset);
+  const [bgAmbience, setBgAmbience] = useState<number>(DEFAULT_SETTINGS.bgAmbienceVolume);
+  const [completionChime, setCompletionChime] = useState<boolean>(DEFAULT_SETTINGS.completionChime);
+  const [autoPlayAudio, setAutoPlayAudio] = useState<boolean>(DEFAULT_SETTINGS.autoPlayAudio);
   const [isRecompiling, setIsRecompiling] = useState<boolean>(false);
   const [isPreviewingAudio, setIsPreviewingAudio] = useState<boolean>(false);
   const [isPlayingChime, setIsPlayingChime] = useState<boolean>(false);
   const [blockedCount, setBlockedCount] = useState<number>(0);
   const [localDataKb, setLocalDataKb] = useState<string>("0.0 KB");
-  const [userLevel, setUserLevel] = useState<number>(() => getStoredGamification().level);
+  const [userLevel, setUserLevel] = useState<number>(1);
+  const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(DEFAULT_SPOTIFY_PREFS);
+  const [userPlaylists, setUserPlaylists] = useState<SpotifyPlaylistItem[]>([]);
+  const [isSpotifyConnected, setIsSpotifyConnected] = useState<boolean>(false);
+  const [isLoadingUserPlaylists, setIsLoadingUserPlaylists] = useState<boolean>(false);
+  const [isPlaylistsModalOpen, setIsPlaylistsModalOpen] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isLoadedRef = useRef<boolean>(false);
 
-  // Subscribe to settings updates from cloud sync or other tabs
+  useCloseOnEscape(isPlaylistsModalOpen, () => setIsPlaylistsModalOpen(false));
+
+  const loadSpotifyData = async () => {
+    setIsLoadingUserPlaylists(true);
+    try {
+      const res = await fetch("/api/spotify/playlists");
+      if (res.ok) {
+        const data = await res.json();
+        setIsSpotifyConnected(Boolean(data.connected));
+        if (Array.isArray(data.playlists)) {
+          setUserPlaylists(data.playlists);
+        }
+      }
+    } catch {
+      // Quietly ignore in offline mode
+    } finally {
+      setIsLoadingUserPlaylists(false);
+    }
+  };
+
   useEffect(() => {
-    isLoadedRef.current = true;
+    setSpotifyPrefs(getStoredSpotifyPreferences());
+    const unsub = subscribeToSpotifyPreferences((updated) => {
+      setSpotifyPrefs(updated);
+    });
+
+    loadSpotifyData();
+
+    const handleAuth = () => {
+      loadSpotifyData();
+    };
+    window.addEventListener(SPOTIFY_AUTH_UPDATED_EVENT, handleAuth);
+
+    return () => {
+      unsub();
+      window.removeEventListener(SPOTIFY_AUTH_UPDATED_EVENT, handleAuth);
+    };
+  }, []);
+
+  const handleSelectPlaylist = (pl: SpotifyPlaylistItem) => {
+    saveStoredSpotifyPreferences({
+      selectedPlaylistUri: pl.uri,
+      selectedPlaylistName: pl.name,
+      selectedPlaylistImage: pl.imageUrl,
+      selectedPlaylistOwner: pl.ownerName,
+      audioSource: "spotify",
+      lastPlayedTrackUri: null,
+    });
+  };
+
+  // Hydrate settings and gamification from storage on client mount & subscribe to updates
+  useEffect(() => {
+    const initial = getStoredSettings();
+    setDeepFocusMins(initial.deepFocusMinutes);
+    setShortBreakMins(initial.shortBreakMinutes);
+    setLongBreakMins(initial.longBreakMinutes);
+    setLongBreakCadence(initial.longBreakCadence);
+    setAutoStartBreaks(initial.autoStartBreaks);
+    setAutoStartFocus(initial.autoStartFocus);
+    setStrictBlocking(initial.strictBlocking === "SUSPEND" ? "suspend" : "strict");
+    setAcousticPreset(initial.acousticPreset as AcousticPreset);
+    setBgAmbience(initial.bgAmbienceVolume);
+    setCompletionChime(initial.completionChime);
+    setAutoPlayAudio(initial.autoPlayAudio);
+
+    setUserLevel(getStoredGamification().level);
+
+    // Defer enabling saving until after the initial stored values are committed to state
+    const timer = setTimeout(() => {
+      isLoadedRef.current = true;
+    }, 0);
+
     const unsubscribe = subscribeToSettings((newSettings) => {
       setDeepFocusMins((prev) => (prev !== newSettings.deepFocusMinutes ? newSettings.deepFocusMinutes : prev));
       setShortBreakMins((prev) => (prev !== newSettings.shortBreakMinutes ? newSettings.shortBreakMinutes : prev));
@@ -58,9 +144,19 @@ export default function SettingsPage() {
       setAcousticPreset((prev) => (prev !== newSettings.acousticPreset ? (newSettings.acousticPreset as AcousticPreset) : prev));
       setBgAmbience((prev) => (prev !== newSettings.bgAmbienceVolume ? newSettings.bgAmbienceVolume : prev));
       setCompletionChime((prev) => (prev !== newSettings.completionChime ? newSettings.completionChime : prev));
+      setAutoPlayAudio((prev) => (prev !== newSettings.autoPlayAudio ? newSettings.autoPlayAudio : prev));
     });
 
-    return unsubscribe;
+    const handleGamification = () => {
+      setUserLevel(getStoredGamification().level);
+    };
+    window.addEventListener("dnd-gamification-updated" as any, handleGamification);
+
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+      window.removeEventListener("dnd-gamification-updated" as any, handleGamification);
+    };
   }, []);
 
   // Save settings whenever user modifies any field
@@ -77,6 +173,7 @@ export default function SettingsPage() {
       acousticPreset,
       bgAmbienceVolume: bgAmbience,
       completionChime,
+      autoPlayAudio,
     });
   }, [
     deepFocusMins,
@@ -89,13 +186,21 @@ export default function SettingsPage() {
     acousticPreset,
     bgAmbience,
     completionChime,
+    autoPlayAudio,
   ]);
 
-  // Clean up audio playback when navigating away
+  const isRunningRef = useRef(isRunning);
+  useEffect(() => {
+    isRunningRef.current = isRunning;
+  }, [isRunning]);
+
+  // Clean up audio playback when navigating away (only if timer is not actively running)
   useEffect(() => {
     return () => {
-      const synth = getSoundSynth();
-      synth.stop();
+      if (!isRunningRef.current) {
+        const synth = getSoundSynth();
+        synth.stop();
+      }
     };
   }, []);
 
@@ -114,10 +219,22 @@ export default function SettingsPage() {
 
   const handleSelectPreset = (preset: AcousticPreset) => {
     setAcousticPreset(preset);
+    // Explicitly set audioSource to "ambient" so timer plays ambient sound
+    const updated = saveStoredSpotifyPreferences({ audioSource: "ambient" });
+    setSpotifyPrefs(updated);
     if (isPreviewingAudio) {
       const synth = getSoundSynth();
       synth.playPreset(preset, bgAmbience);
     }
+  };
+
+  const handleToggleAutoPlayAudio = () => {
+    const nextVal = !autoPlayAudio;
+    setAutoPlayAudio(nextVal);
+    const updated = saveStoredSpotifyPreferences({
+      autoPlayOnFocus: nextVal,
+    });
+    setSpotifyPrefs(updated);
   };
 
   const handleVolumeChange = (newVolume: number) => {
@@ -176,6 +293,7 @@ export default function SettingsPage() {
       acousticPreset,
       bgAmbience,
       completionChime,
+      autoPlayAudio,
       exportedAt: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
@@ -211,6 +329,7 @@ export default function SettingsPage() {
           acousticPreset: parsed.acousticPreset,
           bgAmbienceVolume: typeof parsed.bgAmbienceVolume === "number" ? parsed.bgAmbienceVolume : (typeof parsed.bgAmbience === "number" ? parsed.bgAmbience : undefined),
           completionChime: typeof parsed.completionChime === "boolean" ? parsed.completionChime : undefined,
+          autoPlayAudio: typeof parsed.autoPlayAudio === "boolean" ? parsed.autoPlayAudio : (typeof parsed.autoPlayOnFocus === "boolean" ? parsed.autoPlayOnFocus : undefined),
         });
       } catch (err) {
         alert("Failed to parse settings JSON file.");
@@ -551,19 +670,23 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* 3. Sounds & Acoustics Card */}
-          <div className="p-4 sm:p-6 md:p-7 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm">
-            <div className="flex items-center justify-between mb-6">
+          {/* 3. Sounds & Ambience Card */}
+          <div
+            id="sounds"
+            className="p-4 sm:p-6 md:p-7 rounded-2xl border transition-colors bg-white dark:bg-[#101620] border-[#e2e8f0] dark:border-[#1d2634] text-[#0f172a] dark:text-[#f1f5f9] shadow-sm flex flex-col gap-5"
+          >
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0"
                   style={{
                     backgroundColor: isDark ? colors.containerDark : colors.container,
                     color: activeColor,
                   }}
                 >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                    <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
                   </svg>
                 </div>
                 <div>
@@ -571,91 +694,81 @@ export default function SettingsPage() {
                     Sounds &amp; Ambience
                   </h2>
                   <p className="text-xs text-[#64748b] dark:text-[#7e8c9f]">
-                    Calming background sounds to help you tune out distractions
+                    Keep your space quiet, or play a single gentle sound while you work
                   </p>
                 </div>
               </div>
               <button
                 onClick={handleTogglePreviewAudio}
                 type="button"
-                className="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-all duration-200 micro-button hover:scale-[1.02] active:scale-95 focus-visible:ring-2 focus-visible:outline-none border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] hover:bg-[#f1f5f9] dark:hover:bg-[#1c2432] shadow-xs text-[#0f172a] dark:text-[#f1f5f9]"
-                style={{ color: activeColor, outlineColor: activeColor }}
+                className="text-xs font-medium transition-opacity hover:opacity-80 cursor-pointer shrink-0"
+                style={{ color: activeColor }}
               >
-                {isPreviewingAudio ? (
-                  <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
-                    <rect x="6" y="4" width="4" height="16" rx="1" />
-                    <rect x="14" y="4" width="4" height="16" rx="1" />
-                  </svg>
-                ) : (
-                  <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
-                    <polygon points="5 3 19 12 5 21 5 3" />
-                  </svg>
-                )}
-                <span>{isPreviewingAudio ? "Stop Preview" : "Preview Sound"}</span>
+                {isPreviewingAudio ? "Stop preview" : "Preview sound"}
               </button>
             </div>
 
-            {/* Acoustic Preset Cards (Horizontal Scrollable Carousel) */}
-            <div className="overflow-x-auto pb-2 -mx-1 px-1 flex gap-3.5 mb-6 no-scrollbar scroll-smooth">
+            {/* Ambient Soundscapes Carousel */}
+            <div className="overflow-x-auto pb-1 -mx-1 px-1 flex gap-3 no-scrollbar scroll-smooth">
               {[
                 {
                   id: "rain" as AcousticPreset,
                   name: "Gentle Rain",
-                  desc: "Cozy, soothing rain sounds",
+                  desc: "Soft rainfall",
                   img: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "binaural" as AcousticPreset,
                   name: "Focus Beats",
-                  desc: "Gentle rhythm to help focus",
+                  desc: "Steady, calm rhythm",
                   img: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "space" as AcousticPreset,
                   name: "Deep Space",
-                  desc: "Warm sound to mask room noise",
+                  desc: "Blocks out room noise",
                   img: "https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "campfire" as AcousticPreset,
-                  name: "Cedar Hearth",
-                  desc: "Warm crackling campfire with cedar snaps",
+                  name: "Warm Fire",
+                  desc: "Quiet fireplace crackle",
                   img: "https://images.unsplash.com/photo-1475483768296-6163e08872a1?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "cafe" as AcousticPreset,
-                  name: "Cozy Café",
-                  desc: "Ambient café hum and velvet mug warmth",
+                  name: "Quiet Café",
+                  desc: "Soft background hum",
                   img: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "waves" as AcousticPreset,
-                  name: "Ocean Tides",
-                  desc: "Rhythmic rolling waves on sand",
+                  name: "Ocean Waves",
+                  desc: "Slow coastal tide",
                   img: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "whitenoise" as AcousticPreset,
-                  name: "Warm Static",
-                  desc: "Velvety brown noise insulation",
+                  name: "Soft Static",
+                  desc: "Warm background hush",
                   img: "https://images.unsplash.com/photo-1432821596592-e2c18b78144f?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "forest" as AcousticPreset,
-                  name: "Zen Wind",
-                  desc: "Peaceful breeze through woods",
+                  name: "Forest Breeze",
+                  desc: "Wind through the trees",
                   img: "https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "singingbowl" as AcousticPreset,
-                  name: "Tibetan Bowl",
-                  desc: "Harmonic Tibetan bowl at 528Hz",
+                  name: "Singing Bowl",
+                  desc: "Calm, resonant tone",
                   img: "https://images.unsplash.com/photo-1512438248247-f0f2a5a8b7f0?auto=format&fit=crop&w=600&q=80",
                 },
                 {
                   id: "cybergrid" as AcousticPreset,
-                  name: "Neon Cyber Pulse",
-                  desc: "Analog synth pulse with electric flow",
+                  name: "Night Synth",
+                  desc: "Warm electronic flow",
                   img: "https://images.unsplash.com/photo-1508739773434-c26b3d09e071?auto=format&fit=crop&w=600&q=80",
                 },
               ].map((item) => {
@@ -668,17 +781,17 @@ export default function SettingsPage() {
                     key={item.id}
                     onClick={() => {
                       if (!unlocked) {
-                        alert(`🌿 ${info?.unlockRequirement || `Unlocks at Level ${info?.unlockLevel}`}. Keep focusing to unlock this peaceful soundscape!`);
+                        alert(`Unlocks at Level ${info?.unlockLevel}. Keep focusing to unlock this sound.`);
                         return;
                       }
                       handleSelectPreset(item.id);
                     }}
-                    className={`min-w-[190px] max-w-[220px] shrink-0 rounded-xl border transition-all duration-300 micro-button active:scale-[0.98] relative overflow-hidden group flex flex-col ${
+                    className={`min-w-[160px] max-w-[180px] shrink-0 rounded-xl border transition-all relative overflow-hidden group flex flex-col ${
                       isSelected
-                        ? "border-current shadow-md scale-[1.01]"
+                        ? "border-current"
                         : unlocked
-                        ? "bg-[#f8fafc] dark:bg-[#0b0f17] border-[#e2e8f0] dark:border-[#1d2634] hover:border-[#cbd5e1] dark:hover:border-[#283548] hover:scale-[1.02] cursor-pointer"
-                        : "bg-[#f1f5f9]/60 dark:bg-[#0b0f17]/40 border-[#e2e8f0] dark:border-[#1d2634] opacity-75 cursor-not-allowed"
+                        ? "bg-[#f8fafc] dark:bg-[#0b0f17] border-[#e2e8f0] dark:border-[#1d2634] hover:border-[#cbd5e1] dark:hover:border-[#283548] cursor-pointer"
+                        : "bg-[#f1f5f9]/60 dark:bg-[#0b0f17]/40 border-[#e2e8f0] dark:border-[#1d2634] opacity-65 cursor-not-allowed"
                     }`}
                     style={
                       isSelected
@@ -689,7 +802,7 @@ export default function SettingsPage() {
                         : undefined
                     }
                   >
-                    <div className="h-20 w-full relative overflow-hidden">
+                    <div className="h-16 w-full relative overflow-hidden">
                       <img
                         src={item.img}
                         alt={item.name}
@@ -699,61 +812,119 @@ export default function SettingsPage() {
                       />
                       <div
                         className={`absolute inset-0 ${
-                          isDark ? "bg-black/40" : "bg-black/25"
+                          isDark ? "bg-black/35" : "bg-black/20"
                         }`}
                       />
 
-                      {/* Locked overlay with subtle padlock */}
                       {!unlocked && (
-                        <div className="absolute inset-0 bg-black/50 backdrop-blur-[1px] flex items-center justify-center p-2 text-center text-white">
-                          <div className="flex items-center gap-1.5 text-xs font-medium text-amber-200">
-                            <svg className="w-3.5 h-3.5 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                            </svg>
-                            <span>Level {info?.unlockLevel}</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Playing preview indicator */}
-                      {isPreviewingAudio && isSelected && unlocked && (
-                        <div className="absolute top-2 right-2 flex items-center gap-1 text-[11px] font-medium text-emerald-300 bg-black/70 px-2 py-0.5 rounded">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          <span>Playing</span>
+                        <div className="absolute inset-0 bg-black/45 flex items-center justify-center text-white text-[11px] font-medium">
+                          Level {info?.unlockLevel}
                         </div>
                       )}
                     </div>
 
-                    <div className="p-3 flex flex-col flex-1 justify-between">
-                      <div>
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <h3 className="text-xs font-bold text-[#0f172a] dark:text-white truncate">
-                            {item.name}
-                          </h3>
-                        </div>
-                        <p className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] line-clamp-1">
-                          {item.desc}
-                        </p>
-                      </div>
+                    <div className="p-2.5">
+                      <h3 className="text-xs font-semibold text-[#0f172a] dark:text-white truncate">
+                        {item.name}
+                      </h3>
+                      <p className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate mt-0.5">
+                        {isPreviewingAudio && isSelected && unlocked ? "Playing now" : item.desc}
+                      </p>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* Volume Slider & Completion Chime */}
+            {/* Focus Playlist Selection Row */}
+            <div className="pt-4 border-t border-[#e2e8f0] dark:border-[#1d2634] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={
+                    spotifyPrefs.selectedPlaylistImage ||
+                    CURATED_FOCUS_PLAYLISTS[0].imageUrl ||
+                    ""
+                  }
+                  alt={spotifyPrefs.selectedPlaylistName || CURATED_FOCUS_PLAYLISTS[0].name}
+                  className="w-10 h-10 rounded-lg object-cover shrink-0 bg-[#1c2432]"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <h3 className="text-xs font-semibold text-[#0f172a] dark:text-white truncate">
+                      {spotifyPrefs.selectedPlaylistName || CURATED_FOCUS_PLAYLISTS[0].name}
+                    </h3>
+                    <span className="text-[11px] text-[#64748b] dark:text-[#7e8c9f]">
+                      {CURATED_FOCUS_PLAYLISTS.some(
+                        (c) => c.uri === spotifyPrefs.selectedPlaylistUri
+                      )
+                        ? "Starter playlist"
+                        : "Your Spotify playlist"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate mt-0.5">
+                    {isSpotifyConnected ? (
+                      userPlaylists.length > 0
+                        ? `${userPlaylists.length} personal ${userPlaylists.length === 1 ? "playlist" : "playlists"} available`
+                        : "Spotify connected"
+                    ) : (
+                      <>
+                        Calm instrumental music ready for focus ·{" "}
+                        <Link
+                          href="/connected-apps"
+                          className="underline hover:opacity-80"
+                          style={{ color: activeColor }}
+                        >
+                          Connect Spotify
+                        </Link>
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsPlaylistsModalOpen(true)}
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                    isDark
+                      ? "bg-[#141b24] border-[#222d3d] text-[#f1f5f9] hover:bg-[#1c2432]"
+                      : "bg-[#f8fafc] border-[#cbd5e1] text-[#0f172a] hover:bg-[#f1f5f9]"
+                  }`}
+                >
+                  Browse Playlists
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    saveStoredSpotifyPreferences({
+                      audioSource:
+                        spotifyPrefs.audioSource === "spotify" ? "ambient" : "spotify",
+                    })
+                  }
+                  className="text-xs font-medium transition-opacity hover:opacity-80 cursor-pointer"
+                  style={{
+                    color:
+                      spotifyPrefs.audioSource === "spotify"
+                        ? activeColor
+                        : undefined,
+                  }}
+                >
+                  {spotifyPrefs.audioSource === "spotify"
+                    ? "Using playlist"
+                    : "Use on timer"}
+                </button>
+              </div>
+            </div>
+
+            {/* Volume Slider & Session Ending Chime */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-4 border-t border-[#e2e8f0] dark:border-[#1d2634]">
               <div>
                 <div className="flex items-center justify-between text-xs mb-2">
-                  <div className="flex items-center gap-1.5">
-                    <svg className="w-3.5 h-3.5 text-[#64748b] dark:text-[#7e8c9f]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                    </svg>
-                    <span className="font-medium text-[#64748b] dark:text-[#7e8c9f]">
-                      Background Sound Volume
-                    </span>
-                  </div>
+                  <span className="font-medium text-[#64748b] dark:text-[#7e8c9f]">
+                    Sound volume
+                  </span>
                   <span className="font-mono text-xs text-[#64748b] dark:text-[#7e8c9f]">
                     {bgAmbience}%
                   </span>
@@ -773,57 +944,71 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-semibold text-[#0f172a] dark:text-white">
-                    Session Ending Chime
+                    Ending Bell
                   </h3>
-                  <p className="text-[10.5px] text-[#64748b] dark:text-[#7e8c9f]">
-                    Soft, gentle bell when time is up
+                  <p className="text-[11px] text-[#64748b] dark:text-[#7e8c9f]">
+                    Gentle chime when your timer finishes ·{" "}
+                    <button
+                      onClick={handlePreviewChime}
+                      type="button"
+                      className="underline hover:opacity-80 cursor-pointer"
+                      style={{ color: activeColor }}
+                    >
+                      {isPlayingChime ? "Ringing..." : "Test sound"}
+                    </button>
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handlePreviewChime}
-                    type="button"
-                    title="Preview Chime Sound"
-                    aria-label="Preview Chime Sound"
-                    className="px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] hover:bg-[#f1f5f9] dark:hover:bg-[#1c2432] text-[#0f172a] dark:text-[#f1f5f9]"
-                    style={{
-                      color: isPlayingChime ? activeColor : undefined,
-                      borderColor: isPlayingChime ? activeBorder : undefined,
-                    }}
-                  >
-                    <svg
-                      className={`w-3.5 h-3.5 ${isPlayingChime ? "animate-bounce" : ""}`}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                    </svg>
-                    <span>{isPlayingChime ? "Ringing..." : "Test Chime"}</span>
-                  </button>
+                <button
+                  onClick={() => setCompletionChime(!completionChime)}
+                  aria-label="Toggle completion chime"
+                  className="w-11 h-6 rounded-xl transition-colors relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none bg-[#cbd5e1] dark:bg-[#1c2432] shrink-0 cursor-pointer"
+                  style={{
+                    backgroundColor: completionChime ? activeColor : undefined,
+                    outlineColor: activeColor,
+                  }}
+                >
+                  <span
+                    className={`w-5 h-5 rounded-lg transition-transform ${
+                      completionChime
+                        ? isDark
+                          ? "translate-x-5 bg-[#0c1017]"
+                          : "translate-x-5 bg-white shadow-sm"
+                        : "translate-x-0 bg-[#7e8c9f] dark:bg-[#7e8c9f]"
+                    }`}
+                  />
+                </button>
+              </div>
 
-                  <button
-                    onClick={() => setCompletionChime(!completionChime)}
-                    aria-label="Toggle completion chime"
-                    className="w-11 h-6 rounded-xl transition-colors relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none bg-[#cbd5e1] dark:bg-[#1c2432]"
-                    style={{
-                      backgroundColor: completionChime ? activeColor : undefined,
-                      outlineColor: activeColor,
-                    }}
-                  >
-                    <span
-                      className={`w-5 h-5 rounded-lg transition-transform ${
-                        completionChime
-                          ? isDark
-                            ? "translate-x-5 bg-[#0c1017]"
-                            : "translate-x-5 bg-white shadow-sm"
-                          : "translate-x-0 bg-[#7e8c9f] dark:bg-[#7e8c9f]"
-                      }`}
-                    />
-                  </button>
+              {/* Play audio on timer start toggle */}
+              <div className="flex items-center justify-between pt-4 border-t border-[#e2e8f0] dark:border-[#1d2634]">
+                <div>
+                  <h3 className="text-xs font-semibold text-[#0f172a] dark:text-white">
+                    Play audio when timer starts
+                  </h3>
+                  <p className="text-[11px] text-[#64748b] dark:text-[#7e8c9f]">
+                    Automatically play your ambient sound or Spotify playlist when you begin a focus session
+                  </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleToggleAutoPlayAudio}
+                  aria-label="Toggle auto-play audio on timer start"
+                  className="w-11 h-6 rounded-xl transition-colors relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none bg-[#cbd5e1] dark:bg-[#1c2432] shrink-0 cursor-pointer"
+                  style={{
+                    backgroundColor: autoPlayAudio ? activeColor : undefined,
+                    outlineColor: activeColor,
+                  }}
+                >
+                  <span
+                    className={`w-5 h-5 rounded-lg transition-transform ${
+                      autoPlayAudio
+                        ? isDark
+                          ? "translate-x-5 bg-[#0c1017]"
+                          : "translate-x-5 bg-white shadow-sm"
+                        : "translate-x-0 bg-[#7e8c9f] dark:bg-[#7e8c9f]"
+                    }`}
+                  />
+                </button>
               </div>
             </div>
           </div>
@@ -1107,6 +1292,279 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Spotify Playlists Selection Modal (Sound & Ambience) */}
+      {isPlaylistsModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setIsPlaylistsModalOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-playlists-modal-title"
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full max-w-2xl max-h-[85vh] rounded-2xl border p-5 sm:p-6 flex flex-col gap-4 shadow-xl overflow-hidden transition-colors ${
+              isDark
+                ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]"
+                : "bg-white border-[#e2e8f0] text-[#0f172a]"
+            }`}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-[#e2e8f0] dark:border-[#1d2634]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#1DB954]/15 text-[#1DB954] flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                    <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2
+                    id="settings-playlists-modal-title"
+                    className="text-base sm:text-lg font-bold"
+                  >
+                    Select Focus Playlist
+                  </h2>
+                  <p className="text-xs text-[#64748b] dark:text-[#7e8c9f]">
+                    Choose one of your own Spotify playlists or a starter focus pick.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadSpotifyData}
+                  className="p-1.5 rounded-lg border text-xs text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white border-[#e2e8f0] dark:border-[#1d2634] transition-colors cursor-pointer"
+                  title="Refresh playlists"
+                  aria-label="Refresh playlists"
+                >
+                  <svg
+                    className={`w-4 h-4 ${isLoadingUserPlaylists ? "animate-spin" : ""}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="23 4 23 10 17 10" />
+                    <polyline points="1 20 1 14 7 14" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPlaylistsModalOpen(false)}
+                  className="p-1.5 rounded-lg border text-xs text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white border-[#e2e8f0] dark:border-[#1d2634] transition-colors cursor-pointer"
+                  title="Close modal"
+                  aria-label="Close modal"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto pr-1">
+              {isLoadingUserPlaylists ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <div
+                      key={n}
+                      className={`h-16 rounded-xl border animate-pulse ${
+                        isDark
+                          ? "bg-[#0b0f17] border-[#1d2634]"
+                          : "bg-[#f8fafc] border-[#e2e8f0]"
+                      }`}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4 py-1">
+                  {userPlaylists.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b] dark:text-[#7e8c9f]">
+                        Your Spotify Playlists ({userPlaylists.length})
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {userPlaylists.map((pl) => {
+                          const isSelected = spotifyPrefs.selectedPlaylistUri === pl.uri;
+                          return (
+                            <button
+                              key={pl.uri}
+                              type="button"
+                              onClick={() => {
+                                handleSelectPlaylist(pl);
+                              }}
+                              className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                                isSelected
+                                  ? "border-current shadow-xs"
+                                  : isDark
+                                  ? "bg-[#0b0f17] border-[#1c2432] hover:border-[#2a3649]"
+                                  : "bg-[#f8fafc] border-[#e2e8f0] hover:border-[#cbd5e1]"
+                              }`}
+                              style={
+                                isSelected
+                                  ? {
+                                      backgroundColor: isDark
+                                        ? colors.containerDark
+                                        : colors.container,
+                                      borderColor: activeBorder,
+                                    }
+                                  : undefined
+                              }
+                            >
+                              <div className="w-11 h-11 rounded-lg overflow-hidden bg-[#1c2432] shrink-0">
+                                {pl.imageUrl ? (
+                                  <img
+                                    src={pl.imageUrl}
+                                    alt={pl.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-[#1DB954] text-sm font-bold">
+                                    ♪
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-xs font-bold truncate">
+                                    {pl.name}
+                                  </span>
+                                  {isSelected && (
+                                    <span
+                                      className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                                      style={{
+                                        backgroundColor: activeColor,
+                                        color: isDark ? "#00201d" : "#ffffff",
+                                      }}
+                                    >
+                                      Active
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate mt-0.5">
+                                  {isSelected
+                                    ? "Selected for focus"
+                                    : pl.tracksTotal > 0
+                                    ? `${pl.tracksTotal} ${pl.tracksTotal === 1 ? "track" : "tracks"}`
+                                    : "Playlist"}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b] dark:text-[#7e8c9f]">
+                      Starter Focus Playlists
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {CURATED_FOCUS_PLAYLISTS.map((pl) => {
+                        const isSelected = spotifyPrefs.selectedPlaylistUri === pl.uri;
+                        return (
+                          <button
+                            key={pl.uri}
+                            type="button"
+                            onClick={() => {
+                              handleSelectPlaylist(pl);
+                            }}
+                            className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                              isSelected
+                                ? "border-current shadow-xs"
+                                : isDark
+                                ? "bg-[#0b0f17] border-[#1c2432] hover:border-[#2a3649]"
+                                : "bg-[#f8fafc] border-[#e2e8f0] hover:border-[#cbd5e1]"
+                            }`}
+                            style={
+                              isSelected
+                                ? {
+                                    backgroundColor: isDark
+                                      ? colors.containerDark
+                                      : colors.container,
+                                    borderColor: activeBorder,
+                                  }
+                                : undefined
+                            }
+                          >
+                            <div className="w-11 h-11 rounded-lg overflow-hidden bg-[#1c2432] shrink-0">
+                              {pl.imageUrl ? (
+                                <img
+                                  src={pl.imageUrl}
+                                  alt={pl.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[#1DB954] text-sm font-bold">
+                                  ♪
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="text-xs font-bold truncate">
+                                  {pl.name}
+                                </span>
+                                {isSelected && (
+                                  <span
+                                    className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                                    style={{
+                                      backgroundColor: activeColor,
+                                      color: isDark ? "#00201d" : "#ffffff",
+                                    }}
+                                  >
+                                    Active
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate mt-0.5">
+                                {isSelected ? "Selected for focus" : "Focus pick"}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#e2e8f0] dark:border-[#1d2634]">
+              <div className="text-xs truncate text-[#64748b] dark:text-[#7e8c9f]">
+                {spotifyPrefs.selectedPlaylistName ? (
+                  <span>
+                    Selected:{" "}
+                    <strong className="text-[#0f172a] dark:text-white">
+                      {spotifyPrefs.selectedPlaylistName}
+                    </strong>
+                  </span>
+                ) : (
+                  <span>Choose any playlist to use on your focus timer.</span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsPlaylistsModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer shadow-xs transition-opacity hover:opacity-90 shrink-0"
+                style={{
+                  backgroundColor: activeColor,
+                  color: isDark ? "#00201d" : "#ffffff",
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -80,6 +80,7 @@ export default function Navbar() {
     { label: "Focus", href: "/" },
     { label: "Blocklist", href: "/blocklist" },
     { label: "Statistics", href: "/statistics" },
+    { label: "Connected Apps", href: "/connected-apps" },
     { label: "Settings", href: "/settings" },
   ];
 

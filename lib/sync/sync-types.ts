@@ -20,6 +20,8 @@ export interface UserSettingsPayload {
   acousticPreset: string;
   bgAmbienceVolume: number;
   completionChime: boolean;
+  autoPlayAudio: boolean;
+  autoPlayOnFocus?: boolean;
   theme: "LIGHT" | "DARK" | "SYSTEM";
 }
 

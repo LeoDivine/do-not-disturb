@@ -14,6 +14,7 @@ import { extensionClient } from "../lib/blocking/extension-client";
 import { getStoredBlocklist } from "../lib/blocking/blocklist-store";
 import { recordCompletedSession, toLocalDateString } from "../lib/sessions/session-store";
 import { getSoundSynth } from "../lib/sound/sound-synth";
+import { playFocusAudio, stopFocusAudio } from "../lib/sound/audio-coordinator";
 import {
   getStoredSettings,
   subscribeToSettings,
@@ -233,15 +234,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     return val === "timer" || val === "garden" || val === "auto" || (Boolean(val) && val! in HOLIDAY_THEMES);
   }, []);
 
-  const [visualMode, setVisualModeState] = useState<VisualMode>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("dnd_visual_mode");
-      if (saved === "timer" || saved === "garden" || saved === "auto" || (saved && saved in HOLIDAY_THEMES)) {
-        return saved as VisualMode;
-      }
-    }
-    return "timer";
-  });
+  const [visualMode, setVisualModeState] = useState<VisualMode>("timer");
 
   const resolvedVisualMode = useMemo<"timer" | "garden" | HolidayId>(() => {
     const rawMode = visualMode === "auto" ? getNearestHoliday().id : visualMode;
@@ -277,6 +270,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   }, [setVisualMode]);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("dnd_visual_mode");
+      if (isValidVisualMode(saved)) {
+        setVisualModeState(saved);
+      }
+    }
     const handleStorage = (e: StorageEvent) => {
       if (e.key === "dnd_visual_mode" && isValidVisualMode(e.newValue)) {
         setVisualModeState(e.newValue);
@@ -788,6 +787,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       checkDailyCycleReset();
       setModeState(newMode);
       setIsRunning(false);
+      try {
+        stopFocusAudio();
+      } catch {}
       endsAtRef.current = null;
       const duration = durationsRef.current[newMode];
       setTotalSeconds(duration);
@@ -902,6 +904,16 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           setSecondsLeft(nextDuration);
           setIsRunning(true);
 
+          if (nextMode === "focus") {
+            try {
+              playFocusAudio();
+            } catch {}
+          } else {
+            try {
+              stopFocusAudio();
+            } catch {}
+          }
+
           const newState: PersistedTimerState = {
             mode: nextMode,
             secondsLeft: nextDuration,
@@ -916,6 +928,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           dispatchExtensionSync(true, nextMode, newEndsAt, nextDuration);
           reportServerTimerStatus("start", true, nextMode, newEndsAt, nextDuration, nextDuration);
         } else {
+          try {
+            stopFocusAudio();
+          } catch {}
           endsAtRef.current = null;
           sessionIdRef.current = null;
           setIsRunning(false);
@@ -984,6 +999,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     endsAtRef.current = newEndsAt;
     setIsRunning(true);
 
+    if (mode === "focus") {
+      try {
+        playFocusAudio();
+      } catch {}
+    }
+
     const newState: PersistedTimerState = {
       mode,
       secondsLeft: secondsLeftRef.current,
@@ -1009,6 +1030,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       endsAtRef.current = null;
     }
     setIsRunning(false);
+
+    // Pausing the timer automatically pauses all playing audio (including manually selected songs)
+    try {
+      stopFocusAudio();
+    } catch {}
 
     const newState: PersistedTimerState = {
       mode,
@@ -1052,6 +1078,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
 
     setIsRunning(false);
+    try {
+      stopFocusAudio();
+    } catch {}
     endsAtRef.current = null;
     sessionIdRef.current = null;
     const duration = durationsRef.current[mode];
@@ -1095,6 +1124,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
 
     setIsRunning(false);
+    try {
+      stopFocusAudio();
+    } catch {}
     endsAtRef.current = null;
     sessionIdRef.current = null;
 
