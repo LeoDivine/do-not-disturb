@@ -213,7 +213,17 @@ Fetches all user data from PostgreSQL, including blocklists, shortcuts, settings
     "totalFocusHours": 42.5,
     "lastActiveDate": "2026-10-27"
   },
+  "spotifyPrefs": {
+    "selectedPlaylistUri": "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ",
+    "selectedPlaylistName": "Deep Focus",
+    "selectedPlaylistOwner": "Spotify Focus",
+    "audioSource": "spotify",
+    "autoPlayOnFocus": true,
+    "pauseOnBreak": true,
+    "lastPlayedTrackUri": null
+  },
   "sessions": []
+}
 }
 ```
 

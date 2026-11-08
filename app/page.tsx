@@ -37,8 +37,14 @@ import {
 	saveStoredSpotifyPreferences,
 	subscribeToSpotifyPreferences,
 } from "../lib/spotify/spotify-store";
-import SpotifyFocusPlayer from "../components/spotify/spotify-focus-player";
-import { setCurrentPlayingTrack, subscribeToCurrentPlayingTrack } from "../lib/sound/current-track-store";
+import {
+	setCurrentPlayingTrack,
+	subscribeToCurrentPlayingTrack,
+	getCurrentPlayingTrack,
+	ActiveTrackInfo,
+} from "../lib/sound/current-track-store";
+import { sendSpotifyCommand, switchAudioSource } from "../lib/sound/audio-coordinator";
+import { OPEN_SPOTIFY_WIDGET_EVENT } from "../components/spotify/draggable-spotify-widget";
 
 const PRESET_IMAGES: Record<AcousticPreset, string> = {
 	rain: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=360&q=80",
@@ -189,7 +195,9 @@ export default function DashboardPage() {
 	const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
 	const [ambientPreset, setAmbientPreset] = useState<AcousticPreset>("rain");
 	const [audioVolume, setAudioVolume] = useState<number>(0.65);
-	const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(DEFAULT_SPOTIFY_PREFS);
+	const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(() =>
+		getStoredSpotifyPreferences(),
+	);
 	const [userLevel, setUserLevel] = useState<number>(1);
 
 	useEffect(() => {
@@ -260,9 +268,14 @@ export default function DashboardPage() {
 
 
 
+	const [currentTrack, setCurrentTrack] = useState<ActiveTrackInfo>(() =>
+		getCurrentPlayingTrack()
+	);
+
 	// Sync local ambient state with external changes (mini popup window or global triggers)
 	useEffect(() => {
 		return subscribeToCurrentPlayingTrack((track) => {
+			setCurrentTrack(track);
 			if (track.source === "ambient") {
 				setIsAudioPlaying(track.isPlaying);
 			}
@@ -271,7 +284,13 @@ export default function DashboardPage() {
 
 	// Broadcast currently playing ambient sound for mini pop view and media controls
 	useEffect(() => {
-		if (spotifyPrefs.audioSource === "spotify") return;
+		const livePrefs = getStoredSpotifyPreferences();
+		if (
+			livePrefs.audioSource === "spotify" ||
+			(livePrefs.audioSource === "both" && !isAudioPlaying)
+		) {
+			return;
+		}
 
 		const presetInfo = ACOUSTIC_PRESETS[ambientPreset];
 		setCurrentPlayingTrack({
@@ -279,6 +298,8 @@ export default function DashboardPage() {
 			artist: "Ambient Soundscape",
 			source: "ambient",
 			isPlaying: isAudioPlaying,
+			uri: null,
+			artworkUrl: null,
 		});
 	}, [isAudioPlaying, ambientPreset, spotifyPrefs.audioSource]);
 
@@ -330,6 +351,9 @@ export default function DashboardPage() {
 
 	return (
 		<main className="max-w-[1360px] w-full mx-auto px-4 py-5 sm:p-6 md:p-8 flex flex-col gap-5 sm:gap-6">
+			<h1 className="sr-only">
+				Do Not Disturb — Focus Timer, Website Blocker, and Ambient Soundscapes
+			</h1>
 			{/* Top Grid: Left (Focus Hub) and Right (Intelligence & Velocity) */}
 			<div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
 				{/* LEFT COLUMN: Focus Hub */}
@@ -1007,11 +1031,12 @@ export default function DashboardPage() {
 											<button
 												key={tab.id}
 												type="button"
-												onClick={() =>
-													saveStoredSpotifyPreferences({
-														audioSource: tab.id,
-													})
-												}
+												onClick={() => {
+													if (tab.id === "spotify") {
+														setIsAudioPlaying(false);
+													}
+													switchAudioSource(tab.id);
+												}}
 												className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
 													active
 														? "font-semibold shadow-2xs"
@@ -1212,9 +1237,68 @@ export default function DashboardPage() {
 								</div>
 							)}
 
-							{/* Spotify Focus Player (shown when audioSource is "spotify") */}
+							{/* Spotify Focus Quick Card */}
 							{spotifyPrefs.audioSource === "spotify" && (
-								<SpotifyFocusPlayer compact />
+								<div
+									className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-colors ${
+										isDark
+											? "bg-[#0b0f17] border-[#1d2634] text-[#f1f5f9]"
+											: "bg-[#f8fafc] border-[#e2e8f0] text-[#0f172a]"
+									}`}
+								>
+									<div className="flex items-center gap-3 min-w-0">
+										<div className="w-10 h-10 rounded-lg bg-[#1DB954]/15 flex items-center justify-center text-[#1DB954] shrink-0 font-bold text-lg">
+											♪
+										</div>
+										<div className="min-w-0">
+											<div className="flex items-center gap-2">
+												<span className="text-xs font-semibold truncate">
+													{currentTrack.title || spotifyPrefs.selectedPlaylistName || "Deep Focus"}
+												</span>
+												<span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#1DB954]/15 text-[#1DB954] font-medium">
+													{currentTrack.isPlaying && currentTrack.source === "spotify"
+														? "Playing"
+														: "Ready"}
+												</span>
+											</div>
+											<p className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate">
+												{currentTrack.artist || "Spotify Focus"} · Tap the floating Spotify icon to pick tracks
+											</p>
+										</div>
+									</div>
+
+									<div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+										<button
+											type="button"
+											onClick={() => sendSpotifyCommand("toggle")}
+											className="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+											style={{
+												backgroundColor: isDark ? "#141b24" : "#ffffff",
+												borderColor: isDark ? "#222d3d" : "#cbd5e1",
+											}}
+										>
+											<span>
+												{currentTrack.isPlaying && currentTrack.source === "spotify"
+													? "Pause"
+													: "Play"}
+											</span>
+										</button>
+
+										<button
+											type="button"
+											onClick={() => {
+												if (typeof window !== "undefined") {
+													window.dispatchEvent(new CustomEvent(OPEN_SPOTIFY_WIDGET_EVENT));
+												}
+											}}
+											className="px-3 py-1.5 rounded-lg text-xs font-semibold text-black cursor-pointer flex items-center gap-1.5 shadow-sm"
+											style={{ backgroundColor: "#1DB954" }}
+										>
+											<span>Open Player</span>
+											<span>↗</span>
+										</button>
+									</div>
+								</div>
 							)}
 						</div>
 					</div>

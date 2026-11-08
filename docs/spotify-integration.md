@@ -51,13 +51,14 @@ flowchart TD
     subgraph Client ["Client Browser Layer"]
         subgraph UI ["User Interface"]
             Dashboard["Main Dashboard (app/page.tsx)"]
+            Widget["Draggable Spotify Widget (components/spotify/draggable-spotify-widget.tsx)"]
             Player["Spotify Focus Player (components/spotify/spotify-focus-player.tsx)"]
             MiniPiP["Mini PiP Window (components/mini-timer-window.tsx)"]
             CallbackPage["OAuth Callback Landing (app/callback/page.tsx)"]
         end
 
         subgraph ClientState ["Client State & Messaging"]
-            SpotifyStore["Spotify Store (lib/spotify/spotify-store.ts)"]
+            SpotifyStore["Spotify Store & Shared Playlist Cache (lib/spotify/spotify-store.ts)"]
             AudioCoord["Audio Coordinator (lib/sound/audio-coordinator.ts)"]
             TrackStore["Current Track Store (lib/sound/current-track-store.ts)"]
             BChannel[("BroadcastChannel: dnd-spotify-channel & dnd-spotify-command-channel")]
@@ -85,6 +86,10 @@ flowchart TD
     end
 
     %% Client UI to State
+    Widget --> Player
+    Widget --> SpotifyStore
+    Widget --> AudioCoord
+    Widget --> TrackStore
     Player --> SpotifyStore
     Player --> AudioCoord
     Player --> TrackStore
@@ -127,7 +132,7 @@ Do Not Disturb implements the **OAuth 2.0 Authorization Code Grant** flow with c
 
 ### 3.1 OAuth Scopes Requested
 
-The integration requests minimum required permissions for ambient playback and playlist retrieval:
+The integration requests minimum required permissions for playlist retrieval and active track inspection:
 
 | Scope | Purpose |
 | :--- | :--- |
@@ -135,9 +140,8 @@ The integration requests minimum required permissions for ambient playback and p
 | `user-read-private` | Retrieves user profile, avatar, and subscription tier (`premium` vs `free`). |
 | `playlist-read-private` | Fetches private playlists created or saved by the user. |
 | `playlist-read-collaborative` | Fetches collaborative playlists in the user's library. |
-| `streaming` | Controls Web Playback SDK streaming instances. |
-| `user-modify-playback-state` | Pauses, resumes, or skips tracks during focus transitions. |
-| `user-read-playback-state` | Reads active player device and currently playing track info. |
+| `user-read-playback-state` | Reads active player device and playback state. |
+| `user-read-currently-playing` | Reads the user's currently playing track metadata. |
 
 ---
 
@@ -267,18 +271,19 @@ The 60-second safety buffer ensures tokens never expire mid-request.
 
 ## 5. Client Integration & Spotify Embed Controller
 
-Spotify playback inside the web application is powered by the **Spotify Official IFrame API** (`https://open.spotify.com/embed/iframe-api/v1`) coupled with an `EmbedController` instance (`components/spotify/spotify-focus-player.tsx`).
+Spotify playback inside the web application is powered by the **Spotify Official IFrame API** (`https://open.spotify.com/embed/iframe-api/v1`) coupled with an `EmbedController` instance (`components/spotify/spotify-focus-player.tsx`), mounted persistently inside the global floating **Draggable Spotify Widget** (`components/spotify/draggable-spotify-widget.tsx`).
 
-### 5.1 Player Initialization & Sizing
+### 5.1 Persistent Global Widget & Player Initialization
 
-The player dynamically adapts its height depending on context:
-- **Dashboard Compact Mode**: Height 80px (sleek single-line bar on the main focus screen).
-- **Dashboard Full Mode**: Height 152px (standard playlist view with track listings).
+Because `DraggableSpotifyWidget` is mounted in `app/layout.tsx`, the underlying `SpotifyFocusPlayer` instance stays alive across all route transitions (`/`, `/settings`, `/statistics`, `/connected-apps`) without unmounting the Spotify iframe:
+- **Floating Draggable Button (`44px`)**: Positioned anywhere on the viewport (persisted to `localStorage` under `dnd_spotify_widget_pos`). Displays a live pulse indicator when Spotify is actively playing.
+- **Compact Popover Controller (`290px`)**: Provides instant track/playlist search, a toggleable `Tracks` vs `Playlists` browser (with drill-down track listings for both personal and curated playlists), inline transport controls (`prev`, `toggle`, `next`), and a toggleable native Spotify Embed drawer (`Show Spotify Embed ▼`).
+- **Shared Client Playlist Deduplication**: `fetchSpotifyPlaylistsShared()` in `lib/spotify/spotify-store.ts` deduplicates concurrent `/api/spotify/playlists` calls across components with a 45-second TTL cache, automatically invalidated on `SPOTIFY_AUTH_UPDATED_EVENT` or cross-tab `BroadcastChannel("dnd-spotify-channel")` auth events.
 - **Theme Binding**: Automatically syncs theme preference (`dark` vs `0`) based on the application's active `ThemeContext`.
 
 ```typescript
 const options = {
-  uri: selectedPlaylistUri || "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ",
+  uri: lastPlayedTrackUri || selectedPlaylistUri || "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ",
   width: "100%",
   height: compact ? 80 : 152,
   theme: isDark ? "dark" : "0",
@@ -343,15 +348,15 @@ Users select their preferred audio source via the dashboard toggle:
 
 ---
 
-### 6.2 Timer Lifecycle Triggers
+### 6.2 Timer Lifecycle Triggers & Audio Switching
 
-| Timer Event | Audio Coordinator Action | Detail |
+| Timer / UI Event | Audio Coordinator Action | Detail |
 | :--- | :--- | :--- |
-| **Start Focus** | `playFocusAudio()` | If `autoPlayOnFocus: true` (synced to cloud via `UserSettings.autoPlayAudio`), sends `resume` command to Spotify Embed Controller. |
-| **Pause Focus** | `pauseFocusAudio()` | If `pauseOnBreak: true`, dispatches `pause` command to Spotify Embed Controller. |
-| **Session Finished** | `stopFocusAudio()` | Fades ambient synth, pauses Spotify, and sounds Tibetan meditation chime. |
-| **Transition to Break** | `pauseFocusAudio()` | Automatically pauses Spotify when entering Short or Long Break intervals. |
-| **User Skips Session** | `stopFocusAudio()` | Halts audio and resets playback controllers. |
+| **Start Focus** | `playFocusAudio()` | If `autoPlayAudio` / `autoPlayOnFocus` is enabled, starts ambient synth and/or sends `play` with the active track/playlist URI to the Spotify Embed Controller. |
+| **Pause Focus** | `pauseFocusAudio()` | Stops ambient synth and dispatches `pause` to the Spotify Embed Controller. |
+| **Transition to Break** | `pauseFocusAudio({ isBreakTransition: true })` | Stops ambient synth and pauses Spotify if `pauseOnBreak !== false`. |
+| **Session Reset / Skip** | `stopFocusAudio()` | Immediately stops ambient synth and pauses Spotify. |
+| **Switch Source (`ambient` ↔ `spotify`)** | `switchAudioSource(mode)` | Cleanly stops the outgoing audio engine (stops Web Audio synth when switching to `spotify`, or pauses Spotify when switching to `ambient`) to prevent overlapping audio. |
 
 ---
 
@@ -359,7 +364,8 @@ Users select their preferred audio source via the dashboard toggle:
 
 When users pop out the **Mini Timer Window** (`components/mini-timer-window.tsx`):
 - Cross-tab/window synchronization is maintained via `BroadcastChannel("dnd-spotify-command-channel")` and `BroadcastChannel("dnd-spotify-channel")`.
-- Play/pause/next commands executed in the PiP window are broadcast to the main window's Spotify Embed Controller.
+- Play/pause/next commands and direct track/playlist selections (`CURATED_FOCUS_PLAYLISTS` and `CURATED_FOCUS_TRACKS`) executed in the PiP window are broadcast with their target URI to the main window's Spotify Embed Controller without overwriting saved playlist metadata when a single track is picked.
+- Clicking **Full Player ↗** in the PiP window focuses the main application window and dispatches `OPEN_SPOTIFY_WIDGET_EVENT` (`dnd-open-spotify-widget`) to open the floating Spotify controller.
 - Active song artwork, artist name, and track title are mirrored from `current-track-store.ts` into the PiP header without requiring a duplicate iframe instance.
 
 ---
@@ -570,10 +576,11 @@ SPOTIFY_REDIRECT_URI="http://127.0.0.1:3000/callback"
 
 | File Path | Role |
 | :--- | :--- |
-| [`lib/spotify/spotify-server.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/lib/spotify/spotify-server.ts) | Server-side cryptographic sealing (AES-256-GCM), cookie lifecycle, and silent token refresh. |
-| [`lib/spotify/spotify-store.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/lib/spotify/spotify-store.ts) | Client-side preferences store, curated playlists catalog, URI parsing, cross-tab sync, and cloud setting bridging. |
-| [`lib/sound/audio-coordinator.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/lib/sound/audio-coordinator.ts) | Orchestrates ambient soundscape synth and Spotify commands on Pomodoro timer events. |
+| [`lib/spotify/spotify-server.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/lib/spotify/spotify-server.ts) | Server-side cryptographic sealing (AES-256-GCM), proxy-aware origin resolution, cookie lifecycle, and silent token refresh. |
+| [`lib/spotify/spotify-store.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/lib/spotify/spotify-store.ts) | Client-side preferences store, curated playlists/tracks catalog, shared playlist cache (`fetchSpotifyPlaylistsShared`), URI parsing, and cross-tab sync. |
+| [`lib/sound/audio-coordinator.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/lib/sound/audio-coordinator.ts) | Orchestrates ambient soundscape synth and Spotify commands (`playFocusAudio`, `pauseFocusAudio`, `stopFocusAudio`, `switchAudioSource`). |
 | [`lib/sound/current-track-store.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/lib/sound/current-track-store.ts) | Global store for currently playing track title, artist, artwork, and playback status. |
+| [`components/spotify/draggable-spotify-widget.tsx`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/components/spotify/draggable-spotify-widget.tsx) | Persistent floating Spotify button and popover controller for browsing tracks/playlists and controlling playback across all routes. |
 | [`components/spotify/spotify-focus-player.tsx`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/components/spotify/spotify-focus-player.tsx) | Official Spotify IFrame SDK controller, playlist drawer, custom URL importer, and track memory. |
 | [`app/connected-apps/page.tsx`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/connected-apps/page.tsx) | Dedicated Connected Apps management hub for connecting, inspecting, or disconnecting Spotify. |
 | [`app/callback/page.tsx`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/callback/page.tsx) | Handles OAuth callback redirect, deduplicates code exchange, notifies opener, and broadcasts state. |

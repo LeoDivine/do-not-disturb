@@ -14,7 +14,7 @@ import { extensionClient } from "../lib/blocking/extension-client";
 import { getStoredBlocklist } from "../lib/blocking/blocklist-store";
 import { recordCompletedSession, toLocalDateString } from "../lib/sessions/session-store";
 import { getSoundSynth } from "../lib/sound/sound-synth";
-import { playFocusAudio, stopFocusAudio } from "../lib/sound/audio-coordinator";
+import { playFocusAudio, pauseFocusAudio, stopFocusAudio } from "../lib/sound/audio-coordinator";
 import {
   getStoredSettings,
   subscribeToSettings,
@@ -910,7 +910,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             } catch {}
           } else {
             try {
-              stopFocusAudio();
+              pauseFocusAudio({ isBreakTransition: true });
             } catch {}
           }
 
@@ -929,7 +929,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           reportServerTimerStatus("start", true, nextMode, newEndsAt, nextDuration, nextDuration);
         } else {
           try {
-            stopFocusAudio();
+            pauseFocusAudio({ isBreakTransition: mode === "focus" });
           } catch {}
           endsAtRef.current = null;
           sessionIdRef.current = null;
@@ -1031,9 +1031,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
     setIsRunning(false);
 
-    // Pausing the timer automatically pauses all playing audio (including manually selected songs)
+    // Pausing the timer automatically pauses all playing audio
     try {
-      stopFocusAudio();
+      pauseFocusAudio();
     } catch {}
 
     const newState: PersistedTimerState = {

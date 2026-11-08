@@ -144,17 +144,18 @@ Rather than streaming heavy audio assets over the network, Do Not Disturb utiliz
 
 ### 3.2 Spotify Integration & Dual Audio Architecture
 
-Do Not Disturb pairs its procedural synthesizer with the official Spotify IFrame Embed Controller (`components/spotify/spotify-focus-player.tsx`):
+Do Not Disturb pairs its procedural synthesizer with the official Spotify IFrame Embed Controller (`components/spotify/spotify-focus-player.tsx`) mounted inside the persistent global `DraggableSpotifyWidget` (`components/spotify/draggable-spotify-widget.tsx`):
 
 1. **Unified Audio Coordinator (`lib/sound/audio-coordinator.ts`)**:
    - Offers three operating modes: `ambient` (synthesizer only), `spotify` (Spotify only), and `both` (ambient rain or beats layered gently under Spotify tracks).
-   - Listens to `TimerContext` lifecycle events: automatically starts playback when focus begins (`playFocusAudio`), pauses playback during short and long breaks (`pauseFocusAudio`), and halts playback on session reset.
-   - Dispatches instantaneous playback commands (`play`, `pause`, `resume`, `toggle`, `next`, `prev`) across windows and tabs via `BroadcastChannel("dnd-spotify-command-channel")` and custom DOM events.
-2. **Track Memory & Session Continuity**:
-   - The embed controller listens to Spotify `playback_update` events and stores the currently active track URI (`lastPlayedTrackUri`) in `localStorage`.
+   - Cleanly transitions between audio sources via `switchAudioSource()`, automatically stopping the Web Audio synthesizer when switching to Spotify and pausing Spotify when switching to Ambient.
+   - Listens to `TimerContext` lifecycle events: automatically starts playback when focus begins (`playFocusAudio`), pauses playback during short and long breaks (`pauseFocusAudio`, respecting `pauseOnBreak`), and halts playback on session reset (`stopFocusAudio`).
+   - Dispatches instantaneous playback commands (`play`, `pause`, `resume`, `toggle`, `next`, `prev`) with optional target track/playlist URIs across windows and tabs via `BroadcastChannel("dnd-spotify-command-channel")` and custom DOM events.
+2. **Track Memory & Metadata Separation**:
+   - Selecting an individual track updates `lastPlayedTrackUri` without overwriting the user's selected playlist metadata (`selectedPlaylistUri`, `selectedPlaylistName`, `selectedPlaylistImage`), while selecting a new playlist resets `lastPlayedTrackUri` to `null`.
    - When users pause to take a break or step away, resuming the timer continues playback on the same track rather than resetting to the first song of the playlist.
 3. **Picture-in-Picture Mini Window**:
-   - Synchronizes now-playing artwork, artist name, and track title from `current-track-store.ts` directly into the floating desktop PiP window (`components/mini-timer-window.tsx`).
+   - Synchronizes now-playing artwork, artist name, and track title from `current-track-store.ts` directly into the floating desktop PiP window (`components/mini-timer-window.tsx`), and wires **Full Player ↗** to open the floating Spotify widget (`OPEN_SPOTIFY_WIDGET_EVENT`).
    - For full technical details and sequence flows, refer to the [Spotify Integration Guide](spotify-integration.md).
 
 ---
@@ -227,7 +228,7 @@ Do Not Disturb operates on a **Local-First** design pattern:
 When reconciling client and server state:
 - **Blocklist**: Union of unique normalized hostnames (`example.com`). If active flags differ, client takes precedence during an explicit local toggle.
 - **Settings & Presets**: Most recently updated timestamp (`updatedAt`) wins. Reconciles timer durations, break cadences, strict blocking, completion chime, acoustic presets, volume levels, and `autoPlayAudio` (timer auto-play). Custom presets are matched by name and deduplicated.
-- **UI Preferences & Toggles**: Visualizer mode (`__visual_mode__`), shortcut master toggles (`__shortcuts_enabled__`), and active focus anchors (`__primary_anchor__`, `__session_intent__`) are persisted as metadata entries.
+- **UI Preferences & Toggles**: Visualizer mode (`__visual_mode__`), shortcut master toggles (`__shortcuts_enabled__`), active focus anchors (`__primary_anchor__`, `__session_intent__`), and Spotify preferences (`__spotify_prefs__`) are persisted as metadata entries.
 - **Sessions & History**: Idempotent insert based on session ID (`cuid`) and start timestamp. Focus goals, intent milestones, and post-sprint retrospective notes are fully preserved.
 - **Deflection Events**: Granular deflection event logs are matched by timestamp and URL, mapped to the user's blocked website entities, and cumulatively appended.
 - **Gamification & Flow XP**: Progress-preserving reconciliation. The highest `level` and cumulative `totalXp` win, available `streakTokens` and intercepted `totalShieldsRepelled` take the maximum value, and unlocked achievements are reconciled as a set union across all authenticated devices.

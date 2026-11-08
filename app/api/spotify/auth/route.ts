@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import {
+  getRequestOrigin,
   getSpotifyCredentials,
   resolveSpotifyRedirectUri,
+  SPOTIFY_OAUTH_REDIRECT_COOKIE,
   SPOTIFY_OAUTH_STATE_COOKIE,
 } from "@/lib/spotify/spotify-server";
 
 export async function GET(req: NextRequest) {
   const { clientId } = getSpotifyCredentials();
-  const origin = new URL(req.url).origin;
+  const origin = getRequestOrigin(req);
   const redirectUri = resolveSpotifyRedirectUri(origin);
 
   const wantsJson =
@@ -30,7 +32,7 @@ export async function GET(req: NextRequest) {
         )}&message=${encodeURIComponent(
           "SPOTIFY_CLIENT_ID is not configured in environment variables."
         )}`,
-        req.url
+        origin
       )
     );
   }
@@ -41,9 +43,8 @@ export async function GET(req: NextRequest) {
     "user-read-private",
     "playlist-read-private",
     "playlist-read-collaborative",
-    "streaming",
-    "user-modify-playback-state",
     "user-read-playback-state",
+    "user-read-currently-playing",
   ].join(" ");
 
   const authorizeUrl = new URL("https://accounts.spotify.com/authorize");
@@ -55,13 +56,15 @@ export async function GET(req: NextRequest) {
   authorizeUrl.searchParams.set("show_dialog", "true");
 
   const response = NextResponse.redirect(authorizeUrl.toString());
-  response.cookies.set(SPOTIFY_OAUTH_STATE_COOKIE, state, {
+  const cookieOpts = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: 600, // 10 minutes
-  });
+  };
+  response.cookies.set(SPOTIFY_OAUTH_STATE_COOKIE, state, cookieOpts);
+  response.cookies.set(SPOTIFY_OAUTH_REDIRECT_COOKIE, redirectUri, cookieOpts);
 
   return response;
 }

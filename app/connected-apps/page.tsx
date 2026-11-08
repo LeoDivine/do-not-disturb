@@ -7,8 +7,13 @@ import { useTimer } from "../../context/timer-context";
 import { useSync } from "../../context/sync-context";
 import { useExtensionStatus } from "../../lib/blocking/use-extension-status";
 import {
+  CURATED_FOCUS_PLAYLISTS,
+  DEFAULT_SPOTIFY_PREFS,
+  getStoredSpotifyPreferences,
+  notifySpotifyAuthChanged,
+  saveStoredSpotifyPreferences,
   SpotifyProfile,
-  SPOTIFY_AUTH_UPDATED_EVENT,
+  subscribeToSpotifyAuthUpdates,
 } from "../../lib/spotify/spotify-store";
 
 interface UpcomingApp {
@@ -180,20 +185,19 @@ export default function ConnectedAppsPage() {
   useEffect(() => {
     loadSpotifyState();
 
-    const handleAuthChange = () => {
+    const unsubAuth = subscribeToSpotifyAuthUpdates(() => {
       loadSpotifyState();
-    };
+    });
     const handleWindowMessage = (e: MessageEvent) => {
       if (e.origin === window.location.origin && e.data?.type === "DND_OAUTH_CALLBACK") {
         loadSpotifyState();
       }
     };
 
-    window.addEventListener(SPOTIFY_AUTH_UPDATED_EVENT, handleAuthChange);
     window.addEventListener("message", handleWindowMessage);
 
     return () => {
-      window.removeEventListener(SPOTIFY_AUTH_UPDATED_EVENT, handleAuthChange);
+      unsubAuth();
       window.removeEventListener("message", handleWindowMessage);
     };
   }, []);
@@ -207,11 +211,23 @@ export default function ConnectedAppsPage() {
       await fetch("/api/spotify/status", { method: "DELETE" });
       setSpotifyConnected(false);
       setSpotifyUser(null);
-      window.dispatchEvent(
-        new CustomEvent(SPOTIFY_AUTH_UPDATED_EVENT, {
-          detail: { connected: false, provider: "spotify" },
-        })
+
+      // If the user's selected playlist was a personal playlist, reset to default curated playlist
+      const currentPrefs = getStoredSpotifyPreferences();
+      const isCurated = CURATED_FOCUS_PLAYLISTS.some(
+        (c) => c.uri === currentPrefs.selectedPlaylistUri
       );
+      if (!isCurated) {
+        saveStoredSpotifyPreferences({
+          selectedPlaylistUri: DEFAULT_SPOTIFY_PREFS.selectedPlaylistUri,
+          selectedPlaylistName: DEFAULT_SPOTIFY_PREFS.selectedPlaylistName,
+          selectedPlaylistImage: DEFAULT_SPOTIFY_PREFS.selectedPlaylistImage,
+          selectedPlaylistOwner: DEFAULT_SPOTIFY_PREFS.selectedPlaylistOwner,
+          lastPlayedTrackUri: null,
+        });
+      }
+
+      notifySpotifyAuthChanged(false);
     } catch (e) {
       console.error("Failed to disconnect Spotify", e);
     }
