@@ -8,14 +8,16 @@ import {
   SpotifyStoredPreference,
   SpotifyPlaylistItem,
   CURATED_FOCUS_PLAYLISTS,
+  CURATED_FOCUS_TRACKS,
   getStoredSpotifyPreferences,
   saveStoredSpotifyPreferences,
   subscribeToSpotifyPreferences,
   parseSpotifyInputToUri,
-  SPOTIFY_AUTH_UPDATED_EVENT,
+  fetchSpotifyPlaylistsShared,
+  subscribeToSpotifyAuthUpdates,
 } from "../../lib/spotify/spotify-store";
 import { setCurrentPlayingTrack, getCurrentPlayingTrack } from "../../lib/sound/current-track-store";
-import { subscribeToSpotifyCommands } from "../../lib/sound/audio-coordinator";
+import { subscribeToSpotifyCommands, sendSpotifyCommand } from "../../lib/sound/audio-coordinator";
 
 declare global {
   interface Window {
@@ -26,15 +28,22 @@ declare global {
 
 interface SpotifyFocusPlayerProps {
   compact?: boolean;
+  embedOnly?: boolean;
 }
 
-export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlayerProps) {
+export default function SpotifyFocusPlayer({
+  compact = false,
+  embedOnly = false,
+}: SpotifyFocusPlayerProps) {
   const { isDark } = useTheme();
-  const { mode, isRunning, isMiniWindowActive, activeColor, activeBorder, colors } = useTimer();
+  const { activeColor, activeBorder, colors } = useTimer();
 
   const [prefs, setPrefs] = useState<SpotifyStoredPreference>(() =>
     getStoredSpotifyPreferences()
   );
+  const prefsRef = useRef<SpotifyStoredPreference>(prefs);
+  prefsRef.current = prefs;
+
   const [connected, setConnected] = useState<boolean>(false);
   const [userPlaylists, setUserPlaylists] = useState<SpotifyPlaylistItem[]>([]);
   const [spotifyUser, setSpotifyUser] = useState<{
@@ -52,64 +61,42 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
   const currentLoadedUriRef = useRef<string>("");
   const isPlayerPausedRef = useRef<boolean>(true);
   const lastTrackUriRef = useRef<string | null>(null);
-  const prevTimerStateRef = useRef<{ isRunning: boolean; mode: string }>({
-    isRunning: false,
-    mode: "focus",
-  });
 
   // Subscribe to Spotify preference changes across tabs/pages
   useEffect(() => {
-    setPrefs(getStoredSpotifyPreferences());
+    const initial = getStoredSpotifyPreferences();
+    setPrefs(initial);
+    prefsRef.current = initial;
     return subscribeToSpotifyPreferences((updated) => {
       setPrefs(updated);
+      prefsRef.current = updated;
     });
   }, []);
 
-  // Load connected status & user's Spotify playlists
-  const fetchPlaylistsAndStatus = async () => {
+  // Load connected status & user's Spotify playlists (skipped if embedOnly)
+  const fetchPlaylistsAndStatus = useCallback(async (forceRefresh = false) => {
+    if (embedOnly) return;
     setIsLoadingPlaylists(true);
     try {
-      const res = await fetch("/api/spotify/playlists");
-      if (res.ok) {
-        const data = await res.json();
-        setConnected(Boolean(data.connected));
-        setSpotifyUser(data.user || null);
-        if (Array.isArray(data.playlists)) {
-          setUserPlaylists(data.playlists);
-        }
-      }
+      const data = await fetchSpotifyPlaylistsShared(forceRefresh);
+      setConnected(Boolean(data.connected));
+      setSpotifyUser(data.user || null);
+      setUserPlaylists(data.playlists);
     } catch {
       // Ignore network errors in local-only offline state
     } finally {
       setIsLoadingPlaylists(false);
     }
-  };
+  }, [embedOnly]);
 
   useEffect(() => {
-    fetchPlaylistsAndStatus();
+    if (embedOnly) return;
+    fetchPlaylistsAndStatus(false);
 
-    const handleAuthUpdate = () => {
-      fetchPlaylistsAndStatus();
-    };
-    window.addEventListener(SPOTIFY_AUTH_UPDATED_EVENT, handleAuthUpdate);
-
-    let bc: BroadcastChannel | null = null;
-    if (typeof BroadcastChannel !== "undefined") {
-      try {
-        bc = new BroadcastChannel("dnd-spotify-channel");
-        bc.onmessage = (ev) => {
-          if (ev.data?.type === "SPOTIFY_AUTH_SYNC") {
-            fetchPlaylistsAndStatus();
-          }
-        };
-      } catch {}
-    }
-
-    return () => {
-      window.removeEventListener(SPOTIFY_AUTH_UPDATED_EVENT, handleAuthUpdate);
-      bc?.close();
-    };
-  }, []);
+    return subscribeToSpotifyAuthUpdates(() => {
+      fetchPlaylistsAndStatus(true);
+    });
+  }, [embedOnly, fetchPlaylistsAndStatus]);
 
   // Load Spotify Official IFrame API script and initialize EmbedController
   useEffect(() => {
@@ -119,8 +106,11 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
       window.SpotifyIframeApi = IFrameAPI;
       if (!embedContainerRef.current || controllerRef.current) return;
 
+      const currentPrefs = getStoredSpotifyPreferences();
       const initialUri =
-        prefs.selectedPlaylistUri || CURATED_FOCUS_PLAYLISTS[0].uri;
+        currentPrefs.lastPlayedTrackUri ||
+        currentPrefs.selectedPlaylistUri ||
+        CURATED_FOCUS_PLAYLISTS[0].uri;
 
       const mountTarget = document.createElement("div");
       embedContainerRef.current.innerHTML = "";
@@ -141,7 +131,17 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
           currentLoadedUriRef.current = initialUri;
           setIsEmbedReady(true);
 
-          const trackCache = new Map<string, { title: string; artist: string; artworkUrl?: string | null }>();
+          const trackCache = new Map<
+            string,
+            { title: string; artist: string; artworkUrl?: string | null }
+          >();
+          for (const curatedTrack of CURATED_FOCUS_TRACKS) {
+            trackCache.set(curatedTrack.uri, {
+              title: curatedTrack.title,
+              artist: curatedTrack.artist,
+              artworkUrl: curatedTrack.imageUrl,
+            });
+          }
 
           // Keep track of the currently loaded song so stopping/pausing the timer never resets to track 1
           const existing = getCurrentPlayingTrack();
@@ -161,6 +161,8 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
               : null;
 
           const updateTrackInfo = async (playingUri: string, isPaused: boolean) => {
+            const livePrefs = prefsRef.current;
+
             if (!playingUri || !playingUri.startsWith("spotify:track:")) {
               // When paused or stopped, preserve the current track so restarting continues the same song
               if (lastKnownTrack) {
@@ -176,11 +178,12 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
               }
 
               setCurrentPlayingTrack({
-                title: prefs.selectedPlaylistName || "Deep Focus",
-                artist: "Spotify Focus",
+                title: livePrefs.selectedPlaylistName || "Deep Focus",
+                artist: livePrefs.selectedPlaylistOwner || "Spotify Focus",
+                artworkUrl: livePrefs.selectedPlaylistImage,
                 source: "spotify",
                 isPlaying: !isPaused,
-                uri: prefs.selectedPlaylistUri,
+                uri: livePrefs.selectedPlaylistUri,
               });
               return;
             }
@@ -206,20 +209,24 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
 
             // Immediately display a clean fallback while resolving
             lastKnownTrack = {
-              title: prefs.selectedPlaylistName || "Spotify Track",
-              artist: "Spotify",
+              title: livePrefs.selectedPlaylistName || "Spotify Track",
+              artist: livePrefs.selectedPlaylistOwner || "Spotify",
+              artworkUrl: livePrefs.selectedPlaylistImage,
               uri: playingUri,
             };
             setCurrentPlayingTrack({
-              title: prefs.selectedPlaylistName || "Spotify Track",
-              artist: "Spotify",
+              title: livePrefs.selectedPlaylistName || "Spotify Track",
+              artist: livePrefs.selectedPlaylistOwner || "Spotify",
+              artworkUrl: livePrefs.selectedPlaylistImage,
               source: "spotify",
               isPlaying: !isPaused,
               uri: playingUri,
             });
 
             try {
-              const res = await fetch(`/api/spotify/current-track?uri=${encodeURIComponent(playingUri)}`);
+              const res = await fetch(
+                `/api/spotify/current-track?uri=${encodeURIComponent(playingUri)}`
+              );
               if (res.ok) {
                 const data = await res.json();
                 if (data.title) {
@@ -249,20 +256,32 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
 
           EmbedController.addListener("ready", () => {
             setIsEmbedReady(true);
-            if (prefs.audioSource === "spotify") {
+            const livePrefs = prefsRef.current;
+            if (livePrefs.audioSource === "spotify" || livePrefs.audioSource === "both") {
               const current = getCurrentPlayingTrack();
               if (current.source === "spotify" && current.uri?.startsWith("spotify:track:")) {
                 setCurrentPlayingTrack({
                   ...current,
-                  isPlaying: false,
+                  isPlaying: !isPlayerPausedRef.current,
+                });
+              } else if (livePrefs.lastPlayedTrackUri && trackCache.has(livePrefs.lastPlayedTrackUri)) {
+                const cached = trackCache.get(livePrefs.lastPlayedTrackUri)!;
+                setCurrentPlayingTrack({
+                  title: cached.title,
+                  artist: cached.artist,
+                  artworkUrl: cached.artworkUrl,
+                  source: "spotify",
+                  isPlaying: !isPlayerPausedRef.current,
+                  uri: livePrefs.lastPlayedTrackUri,
                 });
               } else {
                 setCurrentPlayingTrack({
-                  title: prefs.selectedPlaylistName || "Deep Focus",
-                  artist: "Spotify Focus",
+                  title: livePrefs.selectedPlaylistName || "Deep Focus",
+                  artist: livePrefs.selectedPlaylistOwner || "Spotify Focus",
+                  artworkUrl: livePrefs.selectedPlaylistImage,
                   source: "spotify",
-                  isPlaying: false,
-                  uri: prefs.selectedPlaylistUri,
+                  isPlaying: !isPlayerPausedRef.current,
+                  uri: livePrefs.selectedPlaylistUri,
                 });
               }
             }
@@ -272,13 +291,24 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
             const isPaused = Boolean(e?.data?.isPaused);
             const playingUri = (e?.data?.playingURI as string) || "";
             isPlayerPausedRef.current = isPaused;
-            if (!isPaused) {
-              saveStoredSpotifyPreferences({ audioSource: "spotify" });
+
+            const livePrefs = prefsRef.current;
+            const prefUpdates: Partial<SpotifyStoredPreference> = {};
+            if (!isPaused && livePrefs.audioSource === "ambient") {
+              prefUpdates.audioSource = "spotify";
             }
-            if (playingUri && playingUri.startsWith("spotify:track:")) {
+            if (
+              playingUri &&
+              playingUri.startsWith("spotify:track:") &&
+              livePrefs.lastPlayedTrackUri !== playingUri
+            ) {
               lastTrackUriRef.current = playingUri;
-              saveStoredSpotifyPreferences({ lastPlayedTrackUri: playingUri });
+              prefUpdates.lastPlayedTrackUri = playingUri;
             }
+            if (Object.keys(prefUpdates).length > 0) {
+              saveStoredSpotifyPreferences(prefUpdates);
+            }
+
             updateTrackInfo(playingUri, isPaused);
           });
         }
@@ -304,9 +334,9 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
       script.async = true;
       document.body.appendChild(script);
     }
-  }, [compact, isDark, prefs.selectedPlaylistUri]);
+  }, [compact, isDark]);
 
-  // Update embedded playlist or selected track URI
+  // Update embedded playlist or selected track URI when preferences change
   const prevSelectedPlaylistUriRef = useRef<string>(prefs.selectedPlaylistUri);
   const prevLastPlayedTrackUriRef = useRef<string | null | undefined>(prefs.lastPlayedTrackUri);
 
@@ -316,41 +346,58 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
       if (controllerRef.current && isEmbedReady && prefs.selectedPlaylistUri) {
         try {
           const targetUri = prefs.lastPlayedTrackUri || prefs.selectedPlaylistUri;
-          controllerRef.current.loadUri(targetUri);
-          currentLoadedUriRef.current = targetUri;
+          if (currentLoadedUriRef.current !== targetUri) {
+            controllerRef.current.loadUri(targetUri);
+            currentLoadedUriRef.current = targetUri;
+          }
           lastTrackUriRef.current = null;
         } catch {}
       }
     }
   }, [prefs.selectedPlaylistUri, prefs.lastPlayedTrackUri, isEmbedReady]);
 
-  // Synchronize when a specific track is selected (e.g. from mini pop view)
+  // Synchronize when a specific track is selected (e.g. from widget or mini pop-up view)
   useEffect(() => {
-    if (prefs.lastPlayedTrackUri && prevLastPlayedTrackUriRef.current !== prefs.lastPlayedTrackUri) {
+    if (
+      prefs.lastPlayedTrackUri &&
+      prevLastPlayedTrackUriRef.current !== prefs.lastPlayedTrackUri
+    ) {
       prevLastPlayedTrackUriRef.current = prefs.lastPlayedTrackUri;
       if (controllerRef.current && isEmbedReady) {
         try {
-          controllerRef.current.loadUri(prefs.lastPlayedTrackUri);
-          currentLoadedUriRef.current = prefs.lastPlayedTrackUri;
+          if (currentLoadedUriRef.current !== prefs.lastPlayedTrackUri) {
+            controllerRef.current.loadUri(prefs.lastPlayedTrackUri);
+            currentLoadedUriRef.current = prefs.lastPlayedTrackUri;
+          }
         } catch {}
       }
     }
   }, [prefs.lastPlayedTrackUri, isEmbedReady]);
 
-  const resumeOrPlayTrack = useCallback(() => {
+  const resumeOrPlayTrack = useCallback((explicitUri?: string) => {
     if (!controllerRef.current) return;
     try {
-      // If a specific track was selected and not yet loaded into the embed controller, load it now
-      const targetUri = prefs.lastPlayedTrackUri || prefs.selectedPlaylistUri;
-      if (targetUri && currentLoadedUriRef.current !== targetUri && typeof controllerRef.current.loadUri === "function") {
+      const freshPrefs = getStoredSpotifyPreferences();
+      const targetUri =
+        explicitUri || freshPrefs.lastPlayedTrackUri || freshPrefs.selectedPlaylistUri;
+      let loadedNewUri = false;
+
+      if (
+        targetUri &&
+        currentLoadedUriRef.current !== targetUri &&
+        typeof controllerRef.current.loadUri === "function"
+      ) {
         controllerRef.current.loadUri(targetUri);
         currentLoadedUriRef.current = targetUri;
+        prevLastPlayedTrackUriRef.current = freshPrefs.lastPlayedTrackUri;
+        prevSelectedPlaylistUriRef.current = freshPrefs.selectedPlaylistUri;
+        loadedNewUri = true;
       }
 
-      if (typeof controllerRef.current.resume === "function") {
-        controllerRef.current.resume();
-      } else {
+      if (loadedNewUri || typeof controllerRef.current.resume !== "function") {
         controllerRef.current.play();
+      } else {
+        controllerRef.current.resume();
       }
       isPlayerPausedRef.current = false;
     } catch {
@@ -359,43 +406,15 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
         isPlayerPausedRef.current = false;
       } catch {}
     }
-  }, [prefs.lastPlayedTrackUri, prefs.selectedPlaylistUri]);
-
-  // React directly when timer starts or pauses
-  useEffect(() => {
-    if (!controllerRef.current || !isEmbedReady) return;
-    if (prefs.audioSource !== "spotify" && prefs.audioSource !== "both") return;
-
-    // If mini pop view (Document PiP) is active, pause main window player to prevent overlapping audio
-    if (isMiniWindowActive) {
-      try {
-        controllerRef.current.pause();
-        isPlayerPausedRef.current = true;
-      } catch {}
-      return;
-    }
-
-    if (isRunning && mode === "focus" && prefs.autoPlayOnFocus) {
-      resumeOrPlayTrack();
-    } else if (!isRunning && prefs.pauseOnBreak) {
-      try {
-        controllerRef.current.pause();
-        isPlayerPausedRef.current = true;
-      } catch {}
-    }
-  }, [isRunning, isMiniWindowActive, mode, prefs.audioSource, prefs.autoPlayOnFocus, prefs.pauseOnBreak, isEmbedReady, resumeOrPlayTrack]);
+  }, []);
 
   // Handle external playback commands (from timer start/pause, mini pop-up window, global shortcuts, etc.)
   useEffect(() => {
-    return subscribeToSpotifyCommands((command) => {
+    return subscribeToSpotifyCommands((command, uri) => {
       if (!controllerRef.current) return;
-      // If Document PiP mini timer is active, PiP manages playback directly; ignore play/resume here to avoid double-playing
-      if (isMiniWindowActive && (command === "play" || command === "resume")) {
-        return;
-      }
       try {
         if (command === "play" || command === "resume") {
-          resumeOrPlayTrack();
+          resumeOrPlayTrack(uri);
         } else if (command === "pause") {
           controllerRef.current.pause();
           isPlayerPausedRef.current = true;
@@ -410,7 +429,7 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
         console.warn("Spotify command execution failed", err);
       }
     });
-  }, [isMiniWindowActive, resumeOrPlayTrack]);
+  }, [resumeOrPlayTrack]);
 
   const handleSelectPlaylist = (item: SpotifyPlaylistItem) => {
     saveStoredSpotifyPreferences({
@@ -418,9 +437,10 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
       selectedPlaylistName: item.name,
       selectedPlaylistImage: item.imageUrl,
       selectedPlaylistOwner: item.ownerName,
-      audioSource: "spotify",
+      audioSource: prefsRef.current.audioSource === "both" ? "both" : "spotify",
       lastPlayedTrackUri: null,
     });
+    sendSpotifyCommand("play", item.uri);
     setIsPickerOpen(false);
   };
 
@@ -429,17 +449,25 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
     setCustomUrlError("");
     const parsed = parseSpotifyInputToUri(customUrlInput);
     if (!parsed) {
-      setCustomUrlError("Please paste a valid Spotify playlist link.");
+      setCustomUrlError("Please paste a valid Spotify playlist or track link.");
       return;
     }
-    saveStoredSpotifyPreferences({
-      selectedPlaylistUri: parsed.uri,
-      selectedPlaylistName: `Custom ${parsed.type.charAt(0).toUpperCase() + parsed.type.slice(1)}`,
-      selectedPlaylistImage: null,
-      selectedPlaylistOwner: "Custom Link",
-      audioSource: "spotify",
-      lastPlayedTrackUri: null,
-    });
+    if (parsed.type === "track") {
+      saveStoredSpotifyPreferences({
+        lastPlayedTrackUri: parsed.uri,
+        audioSource: prefsRef.current.audioSource === "both" ? "both" : "spotify",
+      });
+    } else {
+      saveStoredSpotifyPreferences({
+        selectedPlaylistUri: parsed.uri,
+        selectedPlaylistName: `Custom ${parsed.type.charAt(0).toUpperCase() + parsed.type.slice(1)}`,
+        selectedPlaylistImage: null,
+        selectedPlaylistOwner: "Custom Link",
+        audioSource: prefsRef.current.audioSource === "both" ? "both" : "spotify",
+        lastPlayedTrackUri: null,
+      });
+    }
+    sendSpotifyCommand("play", parsed.uri);
     setCustomUrlInput("");
     setIsPickerOpen(false);
   };
@@ -450,6 +478,14 @@ export default function SpotifyFocusPlayer({ compact = false }: SpotifyFocusPlay
       (c) => !userPlaylists.some((u) => u.uri === c.uri)
     ),
   ];
+
+  if (embedOnly) {
+    return (
+      <div className="w-full rounded-xl overflow-hidden min-h-[80px]">
+        <div ref={embedContainerRef} />
+      </div>
+    );
+  }
 
   return (
     <div

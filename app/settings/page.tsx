@@ -24,8 +24,10 @@ import {
   getStoredSpotifyPreferences,
   saveStoredSpotifyPreferences,
   subscribeToSpotifyPreferences,
-  SPOTIFY_AUTH_UPDATED_EVENT,
+  fetchSpotifyPlaylistsShared,
+  subscribeToSpotifyAuthUpdates,
 } from "../../lib/spotify/spotify-store";
+import { switchAudioSource } from "../../lib/sound/audio-coordinator";
 import { useCloseOnEscape } from "../../lib/overlays/use-close-on-escape";
 
 export default function SettingsPage() {
@@ -65,17 +67,12 @@ export default function SettingsPage() {
 
   useCloseOnEscape(isPlaylistsModalOpen, () => setIsPlaylistsModalOpen(false));
 
-  const loadSpotifyData = async () => {
+  const loadSpotifyData = async (forceRefresh = false) => {
     setIsLoadingUserPlaylists(true);
     try {
-      const res = await fetch("/api/spotify/playlists");
-      if (res.ok) {
-        const data = await res.json();
-        setIsSpotifyConnected(Boolean(data.connected));
-        if (Array.isArray(data.playlists)) {
-          setUserPlaylists(data.playlists);
-        }
-      }
+      const data = await fetchSpotifyPlaylistsShared(forceRefresh);
+      setIsSpotifyConnected(Boolean(data.connected));
+      setUserPlaylists(data.playlists);
     } catch {
       // Quietly ignore in offline mode
     } finally {
@@ -89,20 +86,27 @@ export default function SettingsPage() {
       setSpotifyPrefs(updated);
     });
 
-    loadSpotifyData();
+    loadSpotifyData(false);
 
-    const handleAuth = () => {
-      loadSpotifyData();
-    };
-    window.addEventListener(SPOTIFY_AUTH_UPDATED_EVENT, handleAuth);
+    const unsubAuth = subscribeToSpotifyAuthUpdates(() => {
+      loadSpotifyData(true);
+    });
 
     return () => {
       unsub();
-      window.removeEventListener(SPOTIFY_AUTH_UPDATED_EVENT, handleAuth);
+      unsubAuth();
     };
   }, []);
 
   const handleSelectPlaylist = (pl: SpotifyPlaylistItem) => {
+    if (isPreviewingAudio) {
+      getSoundSynth().stop();
+      setIsPreviewingAudio(false);
+    } else {
+      try {
+        getSoundSynth().stop();
+      } catch {}
+    }
     saveStoredSpotifyPreferences({
       selectedPlaylistUri: pl.uri,
       selectedPlaylistName: pl.name,
@@ -222,9 +226,9 @@ export default function SettingsPage() {
 
   const handleSelectPreset = (preset: AcousticPreset) => {
     setAcousticPreset(preset);
-    // Explicitly set audioSource to "ambient" so timer plays ambient sound
-    const updated = saveStoredSpotifyPreferences({ audioSource: "ambient" });
-    setSpotifyPrefs(updated);
+    // Explicitly set audioSource to "ambient" and pause Spotify if playing
+    switchAudioSource("ambient");
+    setSpotifyPrefs(getStoredSpotifyPreferences());
     if (isPreviewingAudio) {
       const synth = getSoundSynth();
       synth.playPreset(preset, bgAmbience);
@@ -234,6 +238,9 @@ export default function SettingsPage() {
   const handleToggleAutoPlayAudio = () => {
     const nextVal = !autoPlayAudio;
     setAutoPlayAudio(nextVal);
+    saveStoredSettings({
+      autoPlayAudio: nextVal,
+    });
     const updated = saveStoredSpotifyPreferences({
       autoPlayOnFocus: nextVal,
     });
@@ -297,6 +304,7 @@ export default function SettingsPage() {
       bgAmbience,
       completionChime,
       autoPlayAudio,
+      spotifyPrefs: getStoredSpotifyPreferences(),
       exportedAt: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
@@ -311,6 +319,7 @@ export default function SettingsPage() {
   const handleResetDefaults = () => {
     if (confirm("Reset all settings and active local cache back to factory defaults?")) {
       saveStoredSettings(DEFAULT_SETTINGS);
+      saveStoredSpotifyPreferences(DEFAULT_SPOTIFY_PREFS);
     }
   };
 
@@ -334,6 +343,9 @@ export default function SettingsPage() {
           completionChime: typeof parsed.completionChime === "boolean" ? parsed.completionChime : undefined,
           autoPlayAudio: typeof parsed.autoPlayAudio === "boolean" ? parsed.autoPlayAudio : (typeof parsed.autoPlayOnFocus === "boolean" ? parsed.autoPlayOnFocus : undefined),
         });
+        if (parsed.spotifyPrefs && typeof parsed.spotifyPrefs === "object") {
+          saveStoredSpotifyPreferences(parsed.spotifyPrefs);
+        }
       } catch (err) {
         alert("Failed to parse settings JSON file.");
       }
@@ -900,12 +912,15 @@ export default function SettingsPage() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    saveStoredSpotifyPreferences({
-                      audioSource:
-                        spotifyPrefs.audioSource === "spotify" ? "ambient" : "spotify",
-                    })
-                  }
+                  onClick={() => {
+                    const nextSource =
+                      spotifyPrefs.audioSource === "spotify" ? "ambient" : "spotify";
+                    if (nextSource === "spotify" && isPreviewingAudio) {
+                      getSoundSynth().stop();
+                      setIsPreviewingAudio(false);
+                    }
+                    switchAudioSource(nextSource);
+                  }}
                   className="text-xs font-medium transition-opacity hover:opacity-80 cursor-pointer"
                   style={{
                     color:
@@ -1420,7 +1435,7 @@ export default function SettingsPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={loadSpotifyData}
+                  onClick={() => loadSpotifyData(true)}
                   className="p-1.5 rounded-lg border text-xs text-[#64748b] dark:text-[#7e8c9f] hover:text-[#0f172a] dark:hover:text-white border-[#e2e8f0] dark:border-[#1d2634] transition-colors cursor-pointer"
                   title="Refresh playlists"
                   aria-label="Refresh playlists"

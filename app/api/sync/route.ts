@@ -59,9 +59,17 @@ export async function fetchCloudSyncPayload(userId: string): Promise<SyncPayload
   const shortcutsEnabledShortcut = shortcuts.find((s) => s.actionType === "__shortcuts_enabled__");
   const primaryAnchorShortcut = shortcuts.find((s) => s.actionType === "__primary_anchor__");
   const sessionIntentShortcut = shortcuts.find((s) => s.actionType === "__session_intent__");
+  const spotifyPrefsShortcut = shortcuts.find((s) => s.actionType === "__spotify_prefs__");
   const normalShortcuts = shortcuts.filter(
     (s) => !s.actionType.startsWith("__")
   );
+
+  let parsedSpotifyPrefs: SyncPayload["spotifyPrefs"] = undefined;
+  if (spotifyPrefsShortcut?.keys?.[0]) {
+    try {
+      parsedSpotifyPrefs = JSON.parse(spotifyPrefsShortcut.keys[0]);
+    } catch {}
+  }
 
   // Extract latest primary anchor & session intent
   const latestWithGoal = focusSessions.find((fs) => fs.goal || fs.intent);
@@ -151,6 +159,7 @@ export async function fetchCloudSyncPayload(userId: string): Promise<SyncPayload
     sessionIntent: sessionIntentShortcut?.keys?.[0] || latestWithGoal?.intent || undefined,
     visualMode: visualModeShortcut?.keys?.[0] || undefined,
     shortcutsEnabled: shortcutsEnabledShortcut ? shortcutsEnabledShortcut.keys?.[0] === "true" : undefined,
+    spotifyPrefs: parsedSpotifyPrefs,
     deflectionLogs: Array.isArray(rawDeflections)
       ? rawDeflections.map((d) => ({
           id: d.id,
@@ -653,6 +662,30 @@ export async function POST(req: NextRequest) {
           },
         })
       );
+    }
+
+    if (body.spotifyPrefs && typeof body.spotifyPrefs === "object") {
+      try {
+        const serializedSpotifyPrefs = JSON.stringify(body.spotifyPrefs);
+        metaOps.push(
+          prisma.userShortcut.upsert({
+            where: {
+              userId_actionType: {
+                userId: user.id,
+                actionType: "__spotify_prefs__",
+              },
+            },
+            create: {
+              userId: user.id,
+              actionType: "__spotify_prefs__",
+              keys: [serializedSpotifyPrefs],
+            },
+            update: {
+              keys: [serializedSpotifyPrefs],
+            },
+          })
+        );
+      } catch {}
     }
 
     if (metaOps.length > 0) {

@@ -3,7 +3,7 @@ export interface ActiveTrackInfo {
   artist: string;
   source: "spotify" | "ambient" | "none";
   isPlaying: boolean;
-  uri?: string;
+  uri?: string | null;
   artworkUrl?: string | null;
 }
 

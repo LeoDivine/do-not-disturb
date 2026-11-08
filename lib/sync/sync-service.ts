@@ -8,7 +8,13 @@ import {
 import { getStoredShortcuts, saveStoredShortcuts, DEFAULT_SHORTCUTS, ShortcutDef } from "../shortcuts/shortcuts-store";
 import { getStoredSessions, saveStoredSessions, getSessionStats } from "../sessions/session-store";
 import { getStoredSettings, saveStoredSettings } from "../settings/settings-store";
-import { saveStoredSpotifyPreferences } from "../spotify/spotify-store";
+import {
+  DEFAULT_SPOTIFY_PREFS,
+  getStoredSpotifyPreferences,
+  saveStoredSpotifyPreferences,
+  SPOTIFY_PREFS_UPDATED_EVENT,
+} from "../spotify/spotify-store";
+import { CURRENT_TRACK_UPDATED_EVENT, DEFAULT_TRACK_INFO } from "../sound/current-track-store";
 import { getStoredGamification, saveStoredGamification } from "../gamification/gamification-store";
 import {
   SyncPayload,
@@ -51,6 +57,7 @@ export function gatherLocalState(): SyncPayload {
   const sessionIntent = typeof window !== "undefined" ? localStorage.getItem("dnd_session_intent") || "" : "";
   const visualMode = typeof window !== "undefined" ? localStorage.getItem("dnd_visual_mode") || "classic" : "classic";
   const shortcutsEnabled = typeof window !== "undefined" ? localStorage.getItem("dnd-shortcuts-enabled") !== "false" : true;
+  const spotifyPrefs = getStoredSpotifyPreferences();
   const rawLogs = typeof window !== "undefined" ? getDeflectionLogs().slice(0, 100) : [];
   const deflectionLogs: DeflectionLogPayload[] = rawLogs.map((l) => ({
     id: l.id,
@@ -78,6 +85,7 @@ export function gatherLocalState(): SyncPayload {
     sessionIntent,
     visualMode,
     shortcutsEnabled,
+    spotifyPrefs,
     deflectionLogs,
     exportedAt: new Date().toISOString(),
     version: "1.0.0",
@@ -195,6 +203,42 @@ export function sanitizeSyncPayload(data: any): Partial<SyncPayload> {
   if (typeof data.sessionIntent === "string") sanitized.sessionIntent = data.sessionIntent;
   if (typeof data.visualMode === "string") sanitized.visualMode = data.visualMode;
   if (typeof data.shortcutsEnabled === "boolean") sanitized.shortcutsEnabled = data.shortcutsEnabled;
+
+  if (data.spotifyPrefs && typeof data.spotifyPrefs === "object") {
+    const sp = data.spotifyPrefs;
+    sanitized.spotifyPrefs = {
+      selectedPlaylistUri:
+        typeof sp.selectedPlaylistUri === "string" && sp.selectedPlaylistUri.startsWith("spotify:")
+          ? sp.selectedPlaylistUri
+          : undefined,
+      selectedPlaylistName:
+        typeof sp.selectedPlaylistName === "string" && sp.selectedPlaylistName
+          ? sp.selectedPlaylistName
+          : undefined,
+      selectedPlaylistImage:
+        typeof sp.selectedPlaylistImage === "string" || sp.selectedPlaylistImage === null
+          ? sp.selectedPlaylistImage
+          : undefined,
+      selectedPlaylistOwner:
+        typeof sp.selectedPlaylistOwner === "string" && sp.selectedPlaylistOwner
+          ? sp.selectedPlaylistOwner
+          : undefined,
+      audioSource:
+        sp.audioSource === "spotify" || sp.audioSource === "both" || sp.audioSource === "ambient"
+          ? sp.audioSource
+          : undefined,
+      autoPlayOnFocus:
+        typeof sp.autoPlayOnFocus === "boolean" ? sp.autoPlayOnFocus : undefined,
+      pauseOnBreak:
+        typeof sp.pauseOnBreak === "boolean" ? sp.pauseOnBreak : undefined,
+      lastPlayedTrackUri:
+        typeof sp.lastPlayedTrackUri === "string" && sp.lastPlayedTrackUri.startsWith("spotify:track:")
+          ? sp.lastPlayedTrackUri
+          : sp.lastPlayedTrackUri === null
+          ? null
+          : undefined,
+    };
+  }
 
   return sanitized;
 }
@@ -336,6 +380,16 @@ export function applyStateToDevice(rawPayload: Partial<SyncPayload>): void {
   if (typeof payload.shortcutsEnabled === "boolean") {
     localStorage.setItem("dnd-shortcuts-enabled", String(payload.shortcutsEnabled));
     window.dispatchEvent(new CustomEvent("dnd-shortcuts-enabled-updated", { detail: payload.shortcutsEnabled }));
+  }
+
+  // 10b. Spotify Preferences
+  if (payload.spotifyPrefs && typeof payload.spotifyPrefs === "object") {
+    const cleanPrefs = Object.fromEntries(
+      Object.entries(payload.spotifyPrefs).filter(([, v]) => v !== undefined)
+    );
+    if (Object.keys(cleanPrefs).length > 0) {
+      saveStoredSpotifyPreferences(cleanPrefs);
+    }
   }
 
   // 11. Deflection Logs History
@@ -493,6 +547,7 @@ export function mergeLocalWithCloud(
     sessionIntent: local.sessionIntent || cloud.sessionIntent,
     visualMode: local.visualMode || cloud.visualMode,
     shortcutsEnabled: local.shortcutsEnabled ?? cloud.shortcutsEnabled,
+    spotifyPrefs: { ...(cloud.spotifyPrefs || {}), ...(local.spotifyPrefs || {}) },
     deflectionLogs: mergedLogs.slice(0, 100),
     exportedAt: new Date().toISOString(),
     version: "1.0.0",
@@ -562,4 +617,6 @@ export function clearAllLocalDeviceData(): void {
   window.dispatchEvent(new CustomEvent("dnd-visual-mode-updated", { detail: "classic" }));
   window.dispatchEvent(new CustomEvent("dnd-anchor-updated", { detail: "" }));
   window.dispatchEvent(new CustomEvent("dnd-intent-updated", { detail: "" }));
+  window.dispatchEvent(new CustomEvent(SPOTIFY_PREFS_UPDATED_EVENT, { detail: DEFAULT_SPOTIFY_PREFS }));
+  window.dispatchEvent(new CustomEvent(CURRENT_TRACK_UPDATED_EVENT, { detail: DEFAULT_TRACK_INFO }));
 }

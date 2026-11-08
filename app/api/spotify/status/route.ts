@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getRequestOrigin,
   getSpotifyCredentials,
   resolveSpotifyRedirectUri,
   getValidSpotifySession,
@@ -8,7 +9,7 @@ import {
 
 export async function GET(req: NextRequest) {
   const { clientId } = getSpotifyCredentials();
-  const origin = new URL(req.url).origin;
+  const origin = getRequestOrigin(req);
   const redirectUri = resolveSpotifyRedirectUri(origin);
 
   const { session } = await getValidSpotifySession();

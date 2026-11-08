@@ -60,6 +60,9 @@ export default function StatisticsPage() {
 
   return (
     <main className="max-w-[1360px] w-full mx-auto px-4 py-5 sm:p-6 md:p-8 flex flex-col gap-5 sm:gap-6">
+      <h1 className="sr-only">
+        Focus Statistics, Weekly Focus Rhythm, and Achievements
+      </h1>
       {/* Top 4 Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5">
         {/* Metric 1: Net Focused Time */}

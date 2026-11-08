@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getRequestOrigin,
   getSpotifyCredentials,
+  normalizeSpotifyRedirectUri,
   resolveSpotifyRedirectUri,
   setSpotifySessionCookie,
+  SPOTIFY_OAUTH_REDIRECT_COOKIE,
   SPOTIFY_OAUTH_STATE_COOKIE,
   StoredSpotifySession,
 } from "@/lib/spotify/spotify-server";
@@ -51,8 +54,12 @@ async function performSpotifyCodeExchange(
   origin: string,
   customRedirectUri?: string
 ): Promise<CodeExchangeResult> {
-  const { clientId, clientSecret } = getSpotifyCredentials();
-  const redirectUri = resolveSpotifyRedirectUri(origin) || customRedirectUri || `${origin}/callback`;
+  const { clientId, clientSecret, redirectUri: configuredRedirectUri } = getSpotifyCredentials();
+  const redirectUri = configuredRedirectUri
+    ? normalizeSpotifyRedirectUri(configuredRedirectUri)
+    : customRedirectUri
+    ? normalizeSpotifyRedirectUri(customRedirectUri)
+    : resolveSpotifyRedirectUri(origin);
 
   if (!clientId || !clientSecret) {
     return {
@@ -62,8 +69,8 @@ async function performSpotifyCodeExchange(
     };
   }
 
-  // Verify CSRF state if stored cookie was present
-  if (storedState && state && storedState !== state) {
+  // Strictly verify CSRF state
+  if (!storedState || !state || storedState !== state) {
     return {
       ok: false,
       error: "csrf_state_mismatch",
@@ -145,7 +152,8 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const storedState = req.cookies.get(SPOTIFY_OAUTH_STATE_COOKIE)?.value;
-  const origin = new URL(req.url).origin;
+  const storedRedirectUri = req.cookies.get(SPOTIFY_OAUTH_REDIRECT_COOKIE)?.value;
+  const origin = getRequestOrigin(req);
 
   if (error) {
     const res = NextResponse.redirect(
@@ -157,10 +165,11 @@ export async function GET(req: NextRequest) {
             ? "You cancelled the Spotify connection request."
             : `Spotify returned an error: ${error}`
         )}`,
-        req.url
+        origin
       )
     );
     res.cookies.delete(SPOTIFY_OAUTH_STATE_COOKIE);
+    res.cookies.delete(SPOTIFY_OAUTH_REDIRECT_COOKIE);
     return res;
   }
 
@@ -170,12 +179,18 @@ export async function GET(req: NextRequest) {
         `/callback?status=error&provider=spotify&error=missing_code&message=${encodeURIComponent(
           "No authorization code was received from Spotify."
         )}`,
-        req.url
+        origin
       )
     );
   }
 
-  const result = await exchangeSpotifyCode(code, state, storedState, origin);
+  const result = await exchangeSpotifyCode(
+    code,
+    state,
+    storedState,
+    origin,
+    storedRedirectUri
+  );
   if (!result.ok || !result.session) {
     const res = NextResponse.redirect(
       new URL(
@@ -184,10 +199,11 @@ export async function GET(req: NextRequest) {
         )}&message=${encodeURIComponent(
           result.message || "Failed to authenticate with Spotify."
         )}`,
-        req.url
+        origin
       )
     );
     res.cookies.delete(SPOTIFY_OAUTH_STATE_COOKIE);
+    res.cookies.delete(SPOTIFY_OAUTH_REDIRECT_COOKIE);
     return res;
   }
 
@@ -199,10 +215,11 @@ export async function GET(req: NextRequest) {
       `/callback?status=success&provider=spotify&account=${encodeURIComponent(
         accountName
       )}`,
-      req.url
+      origin
     )
   );
   successRes.cookies.delete(SPOTIFY_OAUTH_STATE_COOKIE);
+  successRes.cookies.delete(SPOTIFY_OAUTH_REDIRECT_COOKIE);
   return successRes;
 }
 
@@ -228,14 +245,15 @@ export async function POST(req: NextRequest) {
     }
 
     const storedState = req.cookies.get(SPOTIFY_OAUTH_STATE_COOKIE)?.value;
-    const origin = new URL(req.url).origin;
+    const storedRedirectUri = req.cookies.get(SPOTIFY_OAUTH_REDIRECT_COOKIE)?.value;
+    const origin = getRequestOrigin(req);
 
     const result = await exchangeSpotifyCode(
       code,
       state || null,
       storedState,
       origin,
-      redirectUri
+      storedRedirectUri || redirectUri
     );
 
     if (!result.ok || !result.session) {
@@ -248,6 +266,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
       errRes.cookies.delete(SPOTIFY_OAUTH_STATE_COOKIE);
+      errRes.cookies.delete(SPOTIFY_OAUTH_REDIRECT_COOKIE);
       return errRes;
     }
 
@@ -261,6 +280,7 @@ export async function POST(req: NextRequest) {
       },
     });
     res.cookies.delete(SPOTIFY_OAUTH_STATE_COOKIE);
+    res.cookies.delete(SPOTIFY_OAUTH_REDIRECT_COOKIE);
     return res;
   } catch (err) {
     console.error("Spotify callback POST exception:", err);

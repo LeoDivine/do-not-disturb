@@ -76,9 +76,9 @@ export function getSpotifyCredentials() {
 export function resolveSpotifyRedirectUri(origin: string): string {
   const { redirectUri } = getSpotifyCredentials();
   if (redirectUri) {
-    return redirectUri;
+    return normalizeSpotifyRedirectUri(redirectUri);
   }
-  return `${origin}/callback`;
+  return normalizeSpotifyRedirectUri(`${origin}/callback`);
 }
 
 /**

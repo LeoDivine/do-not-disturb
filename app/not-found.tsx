@@ -3,9 +3,13 @@ import Link from "next/link";
 import NotFoundBackButton from "../components/not-found-back-button";
 
 export const metadata: Metadata = {
-  title: "Page Not Found — Do Not Disturb",
+  title: "Page Not Found",
   description:
     "The requested page could not be found. Take a gentle breath and return to your focus.",
+  robots: {
+    index: false,
+    follow: true,
+  },
 };
 
 export default function NotFound() {

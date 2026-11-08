@@ -5,7 +5,10 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useTheme } from "../../context/theme-context";
 import { useTimer } from "../../context/timer-context";
-import { SPOTIFY_AUTH_UPDATED_EVENT } from "../../lib/spotify/spotify-store";
+import {
+	invalidateSpotifyPlaylistsCache,
+	SPOTIFY_AUTH_UPDATED_EVENT,
+} from "../../lib/spotify/spotify-store";
 
 type CallbackStatus = "loading" | "success" | "error";
 type ErrorKind = "canceled" | "general";
@@ -32,7 +35,8 @@ function getFriendlyError(
 	if (errorCode === "csrf_state_mismatch") {
 		return {
 			kind: "general",
-			message: "That sign-in session expired. Please try connecting again.",
+			message:
+				"That sign-in session expired. Please try connecting again.",
 		};
 	}
 
@@ -43,14 +47,20 @@ function getFriendlyError(
 		};
 	}
 
-	if (errorCode === "token_exchange_failed" || errorCode === "exchange_failed") {
+	if (
+		errorCode === "token_exchange_failed" ||
+		errorCode === "exchange_failed"
+	) {
 		return {
 			kind: "general",
 			message: `We couldn't finish linking your ${providerTitle} account. Please try again in a moment.`,
 		};
 	}
 
-	if (rawMessage && !/token|oauth|csrf|redirect_uri|parameter/i.test(rawMessage)) {
+	if (
+		rawMessage &&
+		!/token|oauth|csrf|redirect_uri|parameter/i.test(rawMessage)
+	) {
 		return {
 			kind: "general",
 			message: rawMessage,
@@ -82,6 +92,7 @@ function notifyOpenerAndBroadcast(
 	prov: string,
 	account?: string,
 ) {
+	invalidateSpotifyPlaylistsCache();
 	if (typeof window === "undefined") return;
 	try {
 		window.dispatchEvent(
@@ -128,8 +139,9 @@ function CallbackContent() {
 	const { isDark } = useTheme();
 	const { activeColor } = useTimer();
 
-	const [exchangeResult, setExchangeResult] =
-		useState<ExchangeResult | null>(null);
+	const [exchangeResult, setExchangeResult] = useState<ExchangeResult | null>(
+		null,
+	);
 	const [countdown, setCountdown] = useState<number>(3);
 
 	const incomingStatus = searchParams.get("status");

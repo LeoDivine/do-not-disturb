@@ -1,6 +1,7 @@
 import { BlocklistEndpoint } from "../blocking/blocklist-store";
 import { SessionHistoryRecord } from "../sessions/session-store";
 import { UserGamificationState } from "../gamification/types";
+import { SpotifyStoredPreference } from "../spotify/spotify-store";
 
 export type { UserGamificationState };
 
@@ -60,6 +61,7 @@ export interface SyncPayload {
   sessionIntent?: string;
   visualMode?: string;
   shortcutsEnabled?: boolean;
+  spotifyPrefs?: Partial<SpotifyStoredPreference>;
   deflectionLogs?: DeflectionLogPayload[];
   exportedAt?: string;
   version?: string;

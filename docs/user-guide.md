@@ -92,13 +92,14 @@ When a focus or break interval reaches zero, Do Not Disturb sounds an acoustic m
 
 ### 4.3 Spotify Focus Music & Playlists
 
-In addition to procedural ambient sounds, you can play focus music directly from Spotify on the main dashboard (`/`):
+In addition to procedural ambient sounds, you can play focus music from Spotify using the **Focus Session Audio** card on the dashboard (`/`) or the floating **Spotify Focus Widget** button in the corner of your screen:
 
-1. **Toggle Audio Source**: Click the **Spotify** tab in the *Focus Session Audio* selector above the audio card.
-2. **Curated Focus Library**: If you don't connect an account, choose from five built-in, ad-free focus playlists (*Deep Focus*, *Lo-Fi Beats*, *Peaceful Piano*, *Chill Lofi Study*, or *Coding Mode*).
-3. **Connect Your Spotify Account**: Click **Connect Spotify** in the player or visit `/connected-apps` to authorize your personal library. Once connected, your personal and saved playlists appear in the playlist selector drawer. You can also disconnect at any time from `/connected-apps`.
-4. **Paste Any Playlist, Album, or Track**: Use the custom URL input to paste any Spotify web link (e.g. `https://open.spotify.com/playlist/...`), album URL, or Spotify URI (`spotify:playlist:...`).
-5. **Session Continuity & Track Memory**: Pausing your timer or stepping away keeps your place in the playlist. When you resume, Do Not Disturb continues from the exact track you were listening to.
+1. **Toggle Audio Source**: Click the **Spotify** tab in the *Focus Session Audio* selector on the dashboard (or select a track/playlist in the floating Spotify widget). Switching to Spotify automatically stops any playing ambient soundscape, and switching back to Ambient pauses Spotify.
+2. **Floating Spotify Widget**: Drag the green Spotify button anywhere along the screen edge or tap it to open the compact popover controller. Switch between **Tracks** and **Playlists**, drill into any playlist via **Tracks ❯**, or expand **Show Spotify Embed ▼** to interact directly with the official Spotify player.
+3. **Curated Focus Library**: Even without connecting an account, you can choose from five built-in focus playlists (*Deep Focus*, *Lo-Fi Beats*, *Peaceful Piano*, *Chill Lofi Study*, or *Coding Mode*) and curated instrumental focus tracks (*Weightless*, *Clair de Lune*, *Gymnopédie No. 1*, *Experience*, *Cornfield Chase*, and more).
+4. **Connect Your Spotify Account**: Click **Connect Spotify** in the widget or visit `/connected-apps` to authorize your personal library. Once connected, your personal and saved playlists appear automatically across tabs. You can disconnect at any time from `/connected-apps`.
+5. **Paste Any Playlist, Album, or Track**: Use the search/link input in the widget to filter tracks/playlists or paste any Spotify web link (`https://open.spotify.com/playlist/...`) or Spotify URI (`spotify:playlist:...`) and press Enter.
+6. **Session Continuity & Cloud Sync**: Pausing your timer or stepping away preserves your active track (`lastPlayedTrackUri`) without losing your selected playlist. Your Spotify preferences are also included in JSON settings backups and cloud synchronization.
 
 ### 4.4 Timer Playback Coordination & Picture-in-Picture
 

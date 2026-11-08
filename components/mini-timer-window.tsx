@@ -14,16 +14,16 @@ import {
 import {
   SpotifyStoredPreference,
   DEFAULT_SPOTIFY_PREFS,
+  CURATED_FOCUS_PLAYLISTS,
+  CURATED_FOCUS_TRACKS,
   getStoredSpotifyPreferences,
   saveStoredSpotifyPreferences,
   subscribeToSpotifyPreferences,
-  getSpotifyEmbedUrl,
 } from "../lib/spotify/spotify-store";
 import {
-  playFocusAudio,
-  stopFocusAudio,
-  subscribeToSpotifyCommands,
+  sendSpotifyCommand,
 } from "../lib/sound/audio-coordinator";
+import { OPEN_SPOTIFY_WIDGET_EVENT } from "./spotify/draggable-spotify-widget";
 
 export default function MiniTimerWindow() {
   const { isDark } = useTheme();
@@ -80,84 +80,6 @@ export default function MiniTimerWindow() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
-  const pipControllerRef = useRef<any>(null);
-  const pipLoadedUriRef = useRef<string | null>(null);
-
-  const pausePipAudio = useCallback(() => {
-    if (pipControllerRef.current) {
-      try {
-        if (typeof pipControllerRef.current.pause === "function") {
-          pipControllerRef.current.pause();
-        }
-      } catch {}
-    }
-    if (pipWindowRef.current && !pipWindowRef.current.closed) {
-      try {
-        const pipDoc = pipWindowRef.current.document;
-        const iframes = pipDoc.querySelectorAll("iframe");
-        iframes.forEach((iframe) => {
-          try {
-            iframe.contentWindow?.postMessage({ command: "pause" }, "*");
-            iframe.contentWindow?.postMessage({ type: "pause" }, "*");
-            iframe.contentWindow?.postMessage({ method: "pause" }, "*");
-          } catch {}
-        });
-      } catch {}
-    }
-  }, []);
-
-  const playPipAudio = useCallback(() => {
-    const targetUri =
-      spotifyPrefsRef.current?.lastPlayedTrackUri ||
-      spotifyPrefsRef.current?.selectedPlaylistUri;
-
-    if (pipControllerRef.current) {
-      try {
-        if (targetUri && pipLoadedUriRef.current !== targetUri && typeof pipControllerRef.current.loadUri === "function") {
-          pipControllerRef.current.loadUri(targetUri);
-          pipLoadedUriRef.current = targetUri;
-        }
-        if (typeof pipControllerRef.current.resume === "function") {
-          pipControllerRef.current.resume();
-        } else if (typeof pipControllerRef.current.play === "function") {
-          pipControllerRef.current.play();
-        } else if (typeof pipControllerRef.current.togglePlay === "function") {
-          pipControllerRef.current.togglePlay();
-        }
-      } catch {}
-    }
-
-    if (pipWindowRef.current && !pipWindowRef.current.closed) {
-      try {
-        const pipDoc = pipWindowRef.current.document;
-        const iframes = pipDoc.querySelectorAll("iframe");
-        iframes.forEach((iframe) => {
-          try {
-            iframe.contentWindow?.postMessage({ command: "resume" }, "*");
-            iframe.contentWindow?.postMessage({ command: "play" }, "*");
-          } catch {}
-        });
-      } catch {}
-    }
-  }, []);
-
-  // Subscribe to Spotify commands from TimerContext or AudioCoordinator to sync the PiP player
-  useEffect(() => {
-    return subscribeToSpotifyCommands((command) => {
-      if (command === "pause") {
-        pausePipAudio();
-      } else if (command === "resume" || command === "play") {
-        playPipAudio();
-      }
-    });
-  }, [pausePipAudio, playPipAudio]);
-
-  // Ensure Spotify audio in PiP window is paused whenever the timer is stopped or paused
-  useEffect(() => {
-    if (!isRunning) {
-      pausePipAudio();
-    }
-  }, [isRunning, pausePipAudio]);
 
   // Active playing audio track (Ambient or Spotify)
   const [currentTrack, setCurrentTrack] = useState<ActiveTrackInfo>(() =>
@@ -188,8 +110,6 @@ export default function MiniTimerWindow() {
       setSpotifyPrefs(updated);
     });
   }, []);
-
-  const lastLoadedPlaylistUriRef = useRef<string | null>(spotifyPrefs.selectedPlaylistUri || null);
 
   // Sync title when tab is hidden
   useEffect(() => {
@@ -247,16 +167,9 @@ export default function MiniTimerWindow() {
       }
     }
 
-    // 2. Control Spotify Embed Controller in PiP window if present
-    if (willBeRunning) {
-      playPipAudio();
-    } else {
-      pausePipAudio();
-    }
-
-    // 3. Immediately trigger timer context state toggle (TimerContext orchestrates audio centrally)
+    // 2. Immediately trigger timer context state toggle (TimerContext orchestrates audio centrally)
     toggleTimerRef.current();
-  }, [activeColor, playPipAudio, pausePipAudio]);
+  }, [activeColor]);
 
   const handleSkip = useCallback(() => {
     skipTimerRef.current();
@@ -911,26 +824,51 @@ export default function MiniTimerWindow() {
         }
       }
     }
-    // Update compact header time and Spotify embed in Document PiP
+    // Update compact header time in Document PiP
     const compactTimeEl = pipDoc.getElementById("pip-compact-time");
     if (compactTimeEl) compactTimeEl.textContent = formatTime(secondsLeft);
 
-    const spotifyIframe = pipDoc.getElementById("pip-spotify-iframe") as HTMLIFrameElement | null;
-    const currentPlaylistUri = spotifyPrefsRef.current?.selectedPlaylistUri;
-    if (currentPlaylistUri && lastLoadedPlaylistUriRef.current && lastLoadedPlaylistUriRef.current !== currentPlaylistUri) {
-      lastLoadedPlaylistUriRef.current = currentPlaylistUri;
-      pipLoadedUriRef.current = currentPlaylistUri;
-      if (pipControllerRef.current) {
-        try {
-          pipControllerRef.current.loadUri(currentPlaylistUri);
-        } catch {}
-      } else if (spotifyIframe) {
-        const targetUrl = getSpotifyEmbedUrl(currentPlaylistUri);
-        spotifyIframe.setAttribute("src", targetUrl);
-      }
-    } else if (currentPlaylistUri && !lastLoadedPlaylistUriRef.current) {
-      lastLoadedPlaylistUriRef.current = currentPlaylistUri;
+    // Update Spotify Remote Card in Document PiP
+    const cardTitleEl = pipDoc.getElementById("pip-card-title");
+    const cardArtistEl = pipDoc.getElementById("pip-card-artist");
+    const cardArtEl = pipDoc.getElementById("pip-card-art") as HTMLImageElement | null;
+    const cardArtFallback = pipDoc.getElementById("pip-card-art-fallback");
+    const cardToggleBtn = pipDoc.getElementById("pip-card-toggle");
+
+    const track = currentTrackRef.current;
+    if (cardTitleEl) {
+      cardTitleEl.textContent = track?.title || spotifyPrefsRef.current?.selectedPlaylistName || "Deep Focus";
     }
+    if (cardArtistEl) {
+      cardArtistEl.textContent = track?.artist || "Spotify Focus";
+    }
+    if (cardArtEl && cardArtFallback) {
+      if (track?.artworkUrl) {
+        cardArtEl.src = track.artworkUrl;
+        cardArtEl.style.display = "block";
+        cardArtFallback.style.display = "none";
+      } else {
+        cardArtEl.style.display = "none";
+        cardArtFallback.style.display = "flex";
+      }
+    }
+    if (cardToggleBtn) {
+      cardToggleBtn.innerHTML = track?.isPlaying
+        ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="margin-left: 1px;"><polygon points="6 4 19 12 6 20 6 4"/></svg>';
+    }
+
+    // Update active highlight on track items
+    const activeTrackUri = track?.uri || spotifyPrefsRef.current?.lastPlayedTrackUri || spotifyPrefsRef.current?.selectedPlaylistUri;
+    const trackItems = pipDoc.querySelectorAll(".spotify-track-item");
+    trackItems.forEach((el) => {
+      const uri = el.getAttribute("data-uri");
+      if (uri && activeTrackUri && (uri === activeTrackUri || activeTrackUri.includes(uri))) {
+        el.classList.add("active");
+      } else {
+        el.classList.remove("active");
+      }
+    });
   }, [secondsLeft, isRunning, colors.name, cycle, totalCycles, totalSeconds, activeColor, isDark, mode, formatTime, visualMode, resolvedVisualMode, currentTrack, spotifyPrefs, handlePlayToggle, handleSkip]);
 
   // Trigger minimalist Document Picture-in-Picture window (Browser native style, no pills)
@@ -1148,19 +1086,210 @@ export default function MiniTimerWindow() {
         }
         .spotify-container {
           width: 100%;
-          height: 152px;
-          margin: 4px 0 6px;
-          border-radius: 10px;
-          overflow: hidden;
-          background: #121212;
-          border: 1px solid rgba(255, 255, 255, 0.05);
+          height: 220px;
+          margin: 2px 0 4px;
+          border-radius: 12px;
+          background: rgba(18, 18, 18, 0.96);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          box-sizing: border-box;
+          padding: 8px 10px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
           flex-shrink: 0;
         }
-        .spotify-container iframe {
-          width: 100%;
-          height: 152px;
+        .spotify-card-top {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .spotify-card-art-wrap {
+          width: 36px;
+          height: 36px;
+          border-radius: 6px;
+          overflow: hidden;
+          flex-shrink: 0;
+          background: #282828;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .spotify-card-details {
+          flex: 1;
+          min-width: 0;
+        }
+        .spotify-card-title {
+          font-size: 12px;
+          font-weight: 600;
+          color: #ffffff;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .spotify-card-artist {
+          font-size: 10px;
+          color: #94a3b8;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          margin-top: 1px;
+        }
+        .spotify-mini-controls {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          flex-shrink: 0;
+        }
+        .spotify-ctrl-btn {
+          background: rgba(255, 255, 255, 0.06);
           border: none;
-          display: block;
+          border-radius: 50%;
+          width: 26px;
+          height: 26px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #cbd5e1;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .spotify-ctrl-btn:hover {
+          background: rgba(255, 255, 255, 0.15);
+          color: #ffffff;
+        }
+        .spotify-play-btn {
+          background: #1DB954;
+          border: none;
+          border-radius: 50%;
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #000000;
+          cursor: pointer;
+          transition: transform 0.1s ease, background-color 0.15s ease;
+        }
+        .spotify-play-btn:hover {
+          transform: scale(1.05);
+          background: #1ed760;
+        }
+        .spotify-track-list-section {
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          margin: 3px 0;
+        }
+        .spotify-section-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 10px;
+          font-weight: 600;
+          color: #94a3b8;
+          margin-bottom: 3px;
+          letter-spacing: 0.02em;
+        }
+        .spotify-track-count {
+          color: #64748b;
+          font-size: 9px;
+        }
+        .spotify-track-list {
+          flex: 1;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding-right: 2px;
+        }
+        .spotify-track-list::-webkit-scrollbar {
+          width: 3px;
+        }
+        .spotify-track-list::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.15);
+          border-radius: 3px;
+        }
+        .spotify-track-item {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 3px 5px;
+          border-radius: 5px;
+          cursor: pointer;
+          transition: background-color 0.12s ease;
+          user-select: none;
+        }
+        .spotify-track-item:hover {
+          background: rgba(255, 255, 255, 0.08);
+        }
+        .spotify-track-item.active {
+          background: rgba(29, 185, 84, 0.15);
+        }
+        .spotify-item-icon {
+          width: 14px;
+          height: 14px;
+          border-radius: 3px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 9px;
+          color: #94a3b8;
+          background: rgba(255, 255, 255, 0.05);
+          flex-shrink: 0;
+        }
+        .spotify-track-item.active .spotify-item-icon {
+          color: #1DB954;
+          background: rgba(29, 185, 84, 0.2);
+        }
+        .spotify-item-info {
+          flex: 1;
+          min-width: 0;
+          line-height: 1.15;
+        }
+        .spotify-item-name {
+          font-size: 10.5px;
+          font-weight: 500;
+          color: #f1f5f9;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .spotify-track-item.active .spotify-item-name {
+          color: #1DB954;
+          font-weight: 600;
+        }
+        .spotify-item-sub {
+          font-size: 8.5px;
+          color: #64748b;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .spotify-card-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding-top: 4px;
+          border-top: 1px solid rgba(255, 255, 255, 0.06);
+          font-size: 10px;
+        }
+        .spotify-back-btn, .spotify-switch-btn {
+          background: transparent;
+          border: none;
+          color: #94a3b8;
+          font-size: 9.5px;
+          cursor: pointer;
+          font-family: inherit;
+          padding: 1px 4px;
+          border-radius: 4px;
+          transition: color 0.15s ease;
+        }
+        .spotify-back-btn:hover, .spotify-switch-btn:hover {
+          color: #ffffff;
+          background: rgba(255, 255, 255, 0.06);
         }
         .progress-track {
           width: 100%;
@@ -1330,13 +1459,43 @@ export default function MiniTimerWindow() {
         ? holidayTheme.stages[0]
         : "Growing Sprout";
 
-      const initialShowSpotify = spotifyPrefsRef.current.audioSource === "spotify";
-      const initialTrackUri =
-        (currentTrackRef.current?.uri && currentTrackRef.current.uri.startsWith("spotify:track:") ? currentTrackRef.current.uri : null) ||
-        spotifyPrefsRef.current.lastPlayedTrackUri ||
-        spotifyPrefsRef.current.selectedPlaylistUri;
-      const initialSpotifyEmbedUrl = getSpotifyEmbedUrl(initialTrackUri);
-      lastLoadedPlaylistUriRef.current = spotifyPrefsRef.current.selectedPlaylistUri;
+      const initialShowSpotify = false;
+
+      const focusTracksList = [
+        ...CURATED_FOCUS_PLAYLISTS.map((pl) => ({
+          name: pl.name,
+          artist: pl.ownerName,
+          uri: pl.uri,
+          type: "playlist" as const,
+        })),
+        ...CURATED_FOCUS_TRACKS.slice(0, 5).map((tr) => ({
+          name: tr.title,
+          artist: `${tr.artist}${tr.category ? ` • ${tr.category}` : ""}`,
+          uri: tr.uri,
+          type: "track" as const,
+        })),
+      ];
+
+      const activeUri =
+        (currentTrackRef.current?.uri && currentTrackRef.current.uri.startsWith("spotify:"))
+          ? currentTrackRef.current.uri
+          : spotifyPrefsRef.current?.lastPlayedTrackUri || spotifyPrefsRef.current?.selectedPlaylistUri;
+
+      const trackListHtml = focusTracksList
+        .map((item) => {
+          const isActive = activeUri && (activeUri === item.uri || activeUri.includes(item.uri));
+          return `
+            <div class="spotify-track-item ${isActive ? "active" : ""}" data-uri="${item.uri}" data-name="${item.name}" data-artist="${item.artist}">
+              <div class="spotify-item-icon">${item.type === "track" ? "♪" : "♫"}</div>
+              <div class="spotify-item-info">
+                <div class="spotify-item-name">${item.name}</div>
+                <div class="spotify-item-sub">${item.artist}</div>
+              </div>
+              ${isActive ? '<span style="color: #1DB954; font-size: 9px; margin-right: 2px;">▶</span>' : ""}
+            </div>
+          `;
+        })
+        .join("");
 
       container.innerHTML = `
         <div class="header">
@@ -1409,18 +1568,45 @@ export default function MiniTimerWindow() {
           </div>
         </div>
 
-        <!-- SPOTIFY EMBED IFRAME: Allows users to change tracks (Next, Previous, Scrubber, Playlist Tracklist) -->
-        <div id="pip-spotify-container" class="spotify-container" style="display: ${initialShowSpotify ? "block" : "none"};">
-          <div id="pip-spotify-slot">
-            <iframe
-              id="pip-spotify-iframe"
-              src="${initialSpotifyEmbedUrl}"
-              width="100%"
-              height="152"
-              frameBorder="0"
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              loading="lazy"
-            ></iframe>
+        <!-- SPOTIFY REMOTE CONTROL CARD & TRACK SELECTOR -->
+        <div id="pip-spotify-container" class="spotify-container" style="display: ${initialShowSpotify ? "flex" : "none"};">
+          <div class="spotify-card-top">
+            <div class="spotify-card-art-wrap">
+              <img id="pip-card-art" src="${currentTrack?.artworkUrl || ""}" alt="Album Art" style="display: ${currentTrack?.artworkUrl ? "block" : "none"}; width: 36px; height: 36px; border-radius: 6px; object-fit: cover;" />
+              <div id="pip-card-art-fallback" style="display: ${currentTrack?.artworkUrl ? "none" : "flex"}; width: 36px; height: 36px; border-radius: 6px; background: rgba(29, 185, 84, 0.15); color: #1DB954; align-items: center; justify-content: center; font-size: 16px;">♫</div>
+            </div>
+            <div class="spotify-card-details">
+              <div id="pip-card-title" class="spotify-card-title">${currentTrack?.title || spotifyPrefsRef.current?.selectedPlaylistName || "Deep Focus"}</div>
+              <div id="pip-card-artist" class="spotify-card-artist">${currentTrack?.artist || "Spotify Focus"}</div>
+            </div>
+            <div class="spotify-mini-controls">
+              <button id="pip-card-prev" type="button" class="spotify-ctrl-btn" title="Previous Track">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2.5"/></svg>
+              </button>
+              <button id="pip-card-toggle" type="button" class="spotify-play-btn" title="Play / Pause">
+                ${currentTrack?.isPlaying
+                  ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
+                  : '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="margin-left: 1px;"><polygon points="6 4 19 12 6 20 6 4"/></svg>'}
+              </button>
+              <button id="pip-card-next" type="button" class="spotify-ctrl-btn" title="Next Track">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2.5"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="spotify-track-list-section">
+            <div class="spotify-section-header">
+              <span>Select Focus Track or Playlist</span>
+              <span class="spotify-track-count">${focusTracksList.length} items</span>
+            </div>
+            <div id="pip-spotify-track-list" class="spotify-track-list">
+              ${trackListHtml}
+            </div>
+          </div>
+
+          <div class="spotify-card-footer">
+            <button id="pip-card-back" type="button" class="spotify-back-btn">← Back to Timer</button>
+            <button id="pip-card-switch" type="button" class="spotify-switch-btn" title="Open full player in web app">Full Player ↗</button>
           </div>
         </div>
 
@@ -1466,49 +1652,115 @@ export default function MiniTimerWindow() {
 
       // Attach event listeners
       let isSpotifyView = initialShowSpotify;
+      const setSpotifyViewActive = (active: boolean) => {
+        isSpotifyView = active;
+        const spotifyContainer = pipDoc.getElementById("pip-spotify-container");
+        const timerView = pipDoc.getElementById("pip-timer-view");
+        const gardenView = pipDoc.getElementById("pip-garden-view");
+        const trackRow = pipDoc.getElementById("pip-track-row");
+        const compactTime = pipDoc.getElementById("pip-compact-time");
+        const viewToggle = pipDoc.getElementById("pip-view-toggle");
+        const anchorEl = pipDoc.getElementById("pip-anchor");
+        const playerToggleBtn = pipDoc.getElementById("pip-player-toggle");
+
+        const isCurrentVisual = resolvedVisualModeRef.current === "garden" || Boolean(resolvedVisualModeRef.current && resolvedVisualModeRef.current in HOLIDAY_THEMES);
+
+        if (isSpotifyView) {
+          if (spotifyContainer) spotifyContainer.style.display = "flex";
+          if (timerView) timerView.style.display = "none";
+          if (gardenView) gardenView.style.display = "none";
+          if (trackRow) trackRow.style.display = "none";
+          if (compactTime) compactTime.style.display = "inline-block";
+          if (viewToggle) viewToggle.style.display = "none";
+          if (anchorEl) anchorEl.style.display = "none";
+          if (playerToggleBtn) {
+            playerToggleBtn.title = "Switch to Timer View";
+            playerToggleBtn.innerHTML = '<span style="font-size: 10px;">⏱</span> <span id="pip-player-label">Timer</span>';
+          }
+        } else {
+          if (spotifyContainer) spotifyContainer.style.display = "none";
+          if (timerView) timerView.style.display = isCurrentVisual ? "none" : "flex";
+          if (gardenView) gardenView.style.display = isCurrentVisual ? "flex" : "none";
+          if (trackRow) {
+            const track = currentTrackRef.current;
+            trackRow.style.display = track?.title ? "flex" : "none";
+          }
+          if (compactTime) compactTime.style.display = "none";
+          if (viewToggle) viewToggle.style.display = "inline-flex";
+          const anchorText = typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || localStorage.getItem("dnd_session_intent") || "" : "";
+          if (anchorEl) anchorEl.style.display = anchorText ? "flex" : "none";
+          if (playerToggleBtn) {
+            playerToggleBtn.title = "Open Spotify Player";
+            playerToggleBtn.innerHTML = '<span style="font-size: 10px;">♫</span> <span id="pip-player-label">Spotify</span>';
+          }
+        }
+      };
+
       const playerToggleBtn = pipDoc.getElementById("pip-player-toggle");
       if (playerToggleBtn) {
         playerToggleBtn.onclick = (e) => {
           e.preventDefault();
-          isSpotifyView = !isSpotifyView;
-
-          const spotifyContainer = pipDoc.getElementById("pip-spotify-container");
-          const timerView = pipDoc.getElementById("pip-timer-view");
-          const gardenView = pipDoc.getElementById("pip-garden-view");
-          const trackRow = pipDoc.getElementById("pip-track-row");
-          const compactTime = pipDoc.getElementById("pip-compact-time");
-          const viewToggle = pipDoc.getElementById("pip-view-toggle");
-          const anchorEl = pipDoc.getElementById("pip-anchor");
-
-          const isCurrentVisual = resolvedVisualModeRef.current === "garden" || Boolean(resolvedVisualModeRef.current && resolvedVisualModeRef.current in HOLIDAY_THEMES);
-
-          if (isSpotifyView) {
-            if (spotifyContainer) spotifyContainer.style.display = "block";
-            if (timerView) timerView.style.display = "none";
-            if (gardenView) gardenView.style.display = "none";
-            if (trackRow) trackRow.style.display = "none";
-            if (compactTime) compactTime.style.display = "inline-block";
-            if (viewToggle) viewToggle.style.display = "none";
-            if (anchorEl) anchorEl.style.display = "none";
-            playerToggleBtn.title = "Switch to Timer View";
-            playerToggleBtn.innerHTML = '<span style="font-size: 10px;">⏱</span> <span id="pip-player-label">Timer</span>';
-          } else {
-            if (spotifyContainer) spotifyContainer.style.display = "none";
-            if (timerView) timerView.style.display = isCurrentVisual ? "none" : "flex";
-            if (gardenView) gardenView.style.display = isCurrentVisual ? "flex" : "none";
-            if (trackRow) {
-              const track = currentTrackRef.current;
-              trackRow.style.display = track?.title ? "flex" : "none";
-            }
-            if (compactTime) compactTime.style.display = "none";
-            if (viewToggle) viewToggle.style.display = "inline-flex";
-            const anchorText = typeof window !== "undefined" ? localStorage.getItem("dnd_primary_anchor") || localStorage.getItem("dnd_session_intent") || "" : "";
-            if (anchorEl) anchorEl.style.display = anchorText ? "flex" : "none";
-            playerToggleBtn.title = "Open Spotify Player";
-            playerToggleBtn.innerHTML = '<span style="font-size: 10px;">♫</span> <span id="pip-player-label">Spotify</span>';
-          }
+          setSpotifyViewActive(!isSpotifyView);
         };
       }
+
+      const cardBackBtn = pipDoc.getElementById("pip-card-back");
+      if (cardBackBtn) {
+        cardBackBtn.onclick = (e) => {
+          e.preventDefault();
+          setSpotifyViewActive(false);
+        };
+      }
+
+      // Track item selection
+      const trackItems = pipDoc.querySelectorAll(".spotify-track-item");
+      trackItems.forEach((el) => {
+        el.addEventListener("click", () => {
+          const uri = el.getAttribute("data-uri");
+          const name = el.getAttribute("data-name") || "Spotify Track";
+          const artist = el.getAttribute("data-artist") || "Spotify Focus";
+          if (!uri) return;
+
+          if (uri.startsWith("spotify:track:")) {
+            saveStoredSpotifyPreferences({
+              audioSource: "spotify",
+              lastPlayedTrackUri: uri,
+            });
+          } else {
+            saveStoredSpotifyPreferences({
+              selectedPlaylistUri: uri,
+              selectedPlaylistName: name,
+              selectedPlaylistOwner: artist,
+              audioSource: "spotify",
+              lastPlayedTrackUri: null,
+            });
+          }
+
+          sendSpotifyCommand("play", uri);
+
+          setCurrentPlayingTrack({
+            title: name,
+            artist: artist,
+            source: "spotify",
+            isPlaying: true,
+            uri: uri,
+          });
+
+          trackItems.forEach((t) => t.classList.remove("active"));
+          el.classList.add("active");
+
+          const cardTitleEl = pipDoc.getElementById("pip-card-title");
+          if (cardTitleEl) cardTitleEl.textContent = name;
+          const cardArtistEl = pipDoc.getElementById("pip-card-artist");
+          if (cardArtistEl) cardArtistEl.textContent = artist;
+          const cardToggleBtn = pipDoc.getElementById("pip-card-toggle");
+          if (cardToggleBtn) {
+            cardToggleBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+          }
+          const trackIcon = pipDoc.getElementById("pip-track-icon");
+          if (trackIcon) trackIcon.classList.add("playing");
+        });
+      });
 
       const viewToggleBtn = pipDoc.getElementById("pip-view-toggle");
       if (viewToggleBtn) {
@@ -1542,140 +1794,42 @@ export default function MiniTimerWindow() {
         };
       }
 
-      // Initialize official Spotify EmbedController inside the PiP window if Spotify Iframe API is ready
-      const initPipController = (IFrameAPI: any) => {
-        const slot = pipDoc.getElementById("pip-spotify-slot");
-        if (!slot) return;
-        try {
-          slot.innerHTML = "";
-          const mountEl = pipDoc.createElement("div");
-          slot.appendChild(mountEl);
-
-          const initialUri =
-            (currentTrackRef.current?.uri && currentTrackRef.current.uri.startsWith("spotify:track:") ? currentTrackRef.current.uri : null) ||
-            spotifyPrefsRef.current?.lastPlayedTrackUri ||
-            spotifyPrefsRef.current?.selectedPlaylistUri ||
-            "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ";
-
-          pipLoadedUriRef.current = initialUri;
-
-          IFrameAPI.createController(
-            mountEl,
-            {
-              uri: initialUri,
-              width: "100%",
-              height: 152,
-              theme: isDark ? "dark" : "0",
-            },
-            (controller: any) => {
-              pipControllerRef.current = controller;
-              controller.addListener("playback_update", (e: any) => {
-                const isPaused = Boolean(e?.data?.isPaused);
-                const playingUri = (e?.data?.playingURI as string) || "";
-                if (!isPaused) {
-                  saveStoredSpotifyPreferences({ audioSource: "spotify" });
-                }
-                if (playingUri && playingUri.startsWith("spotify:track:")) {
-                  pipLoadedUriRef.current = playingUri;
-                  saveStoredSpotifyPreferences({
-                    audioSource: "spotify",
-                    lastPlayedTrackUri: playingUri,
-                  });
-                }
-              });
-            }
-          );
-        } catch (e) {
-          console.warn("Could not create PiP Spotify EmbedController", e);
-        }
-      };
-
-      if (typeof window !== "undefined" && window.SpotifyIframeApi) {
-        initPipController(window.SpotifyIframeApi);
+      const cardPrevBtn = pipDoc.getElementById("pip-card-prev");
+      if (cardPrevBtn) {
+        cardPrevBtn.onclick = (e) => {
+          e.preventDefault();
+          sendSpotifyCommand("prev");
+        };
       }
 
-      // Forward messages from PiP window to main window so IFrameAPI handshake succeeds
-      const forwardPipMessage = (ev: MessageEvent) => {
-        try {
-          window.dispatchEvent(
-            new MessageEvent("message", {
-              data: ev.data,
-              origin: ev.origin,
-              source: ev.source,
-            })
-          );
-        } catch {}
-      };
-      pip.addEventListener("message", forwardPipMessage);
+      const cardToggleBtn = pipDoc.getElementById("pip-card-toggle");
+      if (cardToggleBtn) {
+        cardToggleBtn.onclick = (e) => {
+          e.preventDefault();
+          sendSpotifyCommand("toggle");
+        };
+      }
 
-      // Listen to Spotify embed messages inside Document PiP (when user clicks/changes track in PiP iframe)
-      const handlePipSpotifyMessage = async (e: MessageEvent) => {
-        try {
-          let data = e.data;
-          if (typeof data === "string") {
-            try {
-              data = JSON.parse(data);
-            } catch {}
-          }
-          if (!data) return;
+      const cardNextBtn = pipDoc.getElementById("pip-card-next");
+      if (cardNextBtn) {
+        cardNextBtn.onclick = (e) => {
+          e.preventDefault();
+          sendSpotifyCommand("next");
+        };
+      }
 
-          // Check for pause/play state
-          if (data.type === "playback_update" || data.type === "playback_state") {
-            const isPaused = Boolean(data.data?.isPaused ?? data.isPaused);
-            const current = currentTrackRef.current || getCurrentPlayingTrack();
-            setCurrentPlayingTrack({
-              ...current,
-              isPlaying: !isPaused,
-            });
-          }
-
-          let trackUri = "";
-          if (typeof data.data?.playingURI === "string" && data.data.playingURI.startsWith("spotify:track:")) {
-            trackUri = data.data.playingURI;
-          } else if (typeof data.playingURI === "string" && data.playingURI.startsWith("spotify:track:")) {
-            trackUri = data.playingURI;
-          } else if (typeof data.uri === "string" && data.uri.startsWith("spotify:track:")) {
-            trackUri = data.uri;
-          }
-
-          if (trackUri) {
-            pipLoadedUriRef.current = trackUri;
-            saveStoredSpotifyPreferences({
-              audioSource: "spotify",
-              lastPlayedTrackUri: trackUri,
-            });
-
-            try {
-              const res = await fetch(`/api/spotify/current-track?uri=${encodeURIComponent(trackUri)}`);
-              if (res.ok) {
-                const trackData = await res.json();
-                if (trackData.title) {
-                  setCurrentPlayingTrack({
-                    title: trackData.title,
-                    artist: trackData.artist || "Spotify",
-                    artworkUrl: trackData.artworkUrl,
-                    source: "spotify",
-                    isPlaying: true,
-                    uri: trackUri,
-                  });
-                }
-              }
-            } catch {}
-          }
-        } catch {}
-      };
-
-      pip.addEventListener("message", handlePipSpotifyMessage);
-      window.addEventListener("message", handlePipSpotifyMessage);
+      const cardSwitchBtn = pipDoc.getElementById("pip-card-switch");
+      if (cardSwitchBtn) {
+        cardSwitchBtn.onclick = (e) => {
+          e.preventDefault();
+          window.focus();
+          window.dispatchEvent(new CustomEvent(OPEN_SPOTIFY_WIDGET_EVENT));
+        };
+      }
 
       pip.addEventListener("pagehide", () => {
         setIsMiniWindowActive(false);
         pipWindowRef.current = null;
-        pipControllerRef.current = null;
-        pipLoadedUriRef.current = null;
-        pip.removeEventListener("message", forwardPipMessage);
-        pip.removeEventListener("message", handlePipSpotifyMessage);
-        window.removeEventListener("message", handlePipSpotifyMessage);
       });
 
       return true;
