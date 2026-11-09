@@ -170,12 +170,38 @@ export default function NavbarLevelPill() {
             )}
           </div>
 
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-1">
             <Link
-              href="/statistics#achievements"
+              href="/leaderboard"
               onClick={() => setIsOpen(false)}
               className="flex items-center justify-between text-xs font-medium transition-colors py-0.5 hover:opacity-80"
               style={{ color: activeColor }}
+            >
+              <span className="flex items-center gap-1.5">
+                <svg
+                  className="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+                  <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+                  <path d="M4 22h16" />
+                  <path d="M10 14.66V17c0 .55-.45 1-1 1H7" />
+                  <path d="M14 14.66V17c0 .55.45 1 1 1h2" />
+                  <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+                </svg>
+                <span>Leaderboard Standings</span>
+              </span>
+              <span>→</span>
+            </Link>
+            <Link
+              href="/statistics#achievements"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center justify-between text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors py-0.5"
             >
               <span>View focus milestones</span>
               <span>→</span>
