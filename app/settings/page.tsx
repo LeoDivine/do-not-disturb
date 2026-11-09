@@ -25,6 +25,7 @@ import {
   saveStoredSpotifyPreferences,
   subscribeToSpotifyPreferences,
   fetchSpotifyPlaylistsShared,
+  importSpotifyPlaylistOrTrack,
   subscribeToSpotifyAuthUpdates,
 } from "../../lib/spotify/spotify-store";
 import { switchAudioSource } from "../../lib/sound/audio-coordinator";
@@ -32,7 +33,7 @@ import { useCloseOnEscape } from "../../lib/overlays/use-close-on-escape";
 
 export default function SettingsPage() {
   const { isDark } = useTheme();
-  const { mode, isRunning, colors, allModeColors, activeColor, activeBorder } = useTimer();
+  const { mode, isRunning, colors, allModeColors, activeColor, activeBorder, isSettingsLocked } = useTimer();
   const { storageMode, user, openSyncModal } = useSync();
   const { startTour, resetTourStatus, hasSeenTour } = useTour();
   const [tourResetNotice, setTourResetNotice] = useState<string | null>(null);
@@ -47,6 +48,10 @@ export default function SettingsPage() {
   const [strictBlocking, setStrictBlocking] = useState<"suspend" | "strict">(
     DEFAULT_SETTINGS.strictBlocking === "SUSPEND" ? "suspend" : "strict"
   );
+  const [lockSettingsDuringFocus, setLockSettingsDuringFocus] = useState<boolean>(
+    Boolean(DEFAULT_SETTINGS.lockSettingsDuringFocus)
+  );
+  const [lockAlert, setLockAlert] = useState<string | null>(null);
   const [acousticPreset, setAcousticPreset] = useState<AcousticPreset>(DEFAULT_SETTINGS.acousticPreset as AcousticPreset);
   const [bgAmbience, setBgAmbience] = useState<number>(DEFAULT_SETTINGS.bgAmbienceVolume);
   const [completionChime, setCompletionChime] = useState<boolean>(DEFAULT_SETTINGS.completionChime);
@@ -61,6 +66,10 @@ export default function SettingsPage() {
   const [userPlaylists, setUserPlaylists] = useState<SpotifyPlaylistItem[]>([]);
   const [isSpotifyConnected, setIsSpotifyConnected] = useState<boolean>(false);
   const [isLoadingUserPlaylists, setIsLoadingUserPlaylists] = useState<boolean>(false);
+  const [spotifyPlaylistsError, setSpotifyPlaylistsError] = useState<string | null>(null);
+  const [spotifyPlaylistsErrorCode, setSpotifyPlaylistsErrorCode] = useState<string | null>(null);
+  const [customPlaylistInput, setCustomPlaylistInput] = useState<string>("");
+  const [isImportingPlaylist, setIsImportingPlaylist] = useState<boolean>(false);
   const [isPlaylistsModalOpen, setIsPlaylistsModalOpen] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isLoadedRef = useRef<boolean>(false);
@@ -73,10 +82,33 @@ export default function SettingsPage() {
       const data = await fetchSpotifyPlaylistsShared(forceRefresh);
       setIsSpotifyConnected(Boolean(data.connected));
       setUserPlaylists(data.playlists);
+      setSpotifyPlaylistsError(data.error || null);
+      setSpotifyPlaylistsErrorCode(data.errorCode || null);
     } catch {
       // Quietly ignore in offline mode
     } finally {
       setIsLoadingUserPlaylists(false);
+    }
+  };
+
+  const handleImportCustomPlaylistInModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const raw = customPlaylistInput.trim();
+    if (!raw) return;
+    setIsImportingPlaylist(true);
+    try {
+      const imported = await importSpotifyPlaylistOrTrack(raw);
+      if (imported?.playlist) {
+        const pl = imported.playlist;
+        setUserPlaylists((prev) => [
+          pl,
+          ...prev.filter((item) => item.uri !== pl.uri && item.id !== pl.id),
+        ]);
+        handleSelectPlaylist(pl);
+        setCustomPlaylistInput("");
+      }
+    } finally {
+      setIsImportingPlaylist(false);
     }
   };
 
@@ -127,6 +159,7 @@ export default function SettingsPage() {
     setAutoStartBreaks(initial.autoStartBreaks);
     setAutoStartFocus(initial.autoStartFocus);
     setStrictBlocking(initial.strictBlocking === "SUSPEND" ? "suspend" : "strict");
+    setLockSettingsDuringFocus(Boolean(initial.lockSettingsDuringFocus));
     setAcousticPreset(initial.acousticPreset as AcousticPreset);
     setBgAmbience(initial.bgAmbienceVolume);
     setCompletionChime(initial.completionChime);
@@ -148,6 +181,7 @@ export default function SettingsPage() {
       setAutoStartFocus((prev) => (prev !== newSettings.autoStartFocus ? newSettings.autoStartFocus : prev));
       const nextStrict = newSettings.strictBlocking === "SUSPEND" ? "suspend" : "strict";
       setStrictBlocking((prev) => (prev !== nextStrict ? nextStrict : prev));
+      setLockSettingsDuringFocus((prev) => (prev !== Boolean(newSettings.lockSettingsDuringFocus) ? Boolean(newSettings.lockSettingsDuringFocus) : prev));
       setAcousticPreset((prev) => (prev !== newSettings.acousticPreset ? (newSettings.acousticPreset as AcousticPreset) : prev));
       setBgAmbience((prev) => (prev !== newSettings.bgAmbienceVolume ? newSettings.bgAmbienceVolume : prev));
       setCompletionChime((prev) => (prev !== newSettings.completionChime ? newSettings.completionChime : prev));
@@ -177,6 +211,7 @@ export default function SettingsPage() {
       autoStartBreaks,
       autoStartFocus,
       strictBlocking: (strictBlocking === "strict" ? "STRICT" : "SUSPEND") as "STRICT" | "SUSPEND",
+      lockSettingsDuringFocus,
       acousticPreset,
       bgAmbienceVolume: bgAmbience,
       completionChime,
@@ -190,11 +225,18 @@ export default function SettingsPage() {
     autoStartBreaks,
     autoStartFocus,
     strictBlocking,
+    lockSettingsDuringFocus,
     acousticPreset,
     bgAmbience,
     completionChime,
     autoPlayAudio,
   ]);
+
+  useEffect(() => {
+    if (!lockAlert) return;
+    const timer = setTimeout(() => setLockAlert(null), 4000);
+    return () => clearTimeout(timer);
+  }, [lockAlert]);
 
   const isRunningRef = useRef(isRunning);
   useEffect(() => {
@@ -300,6 +342,7 @@ export default function SettingsPage() {
       autoStartBreaks,
       autoStartFocus,
       strictBlocking,
+      lockSettingsDuringFocus,
       acousticPreset,
       bgAmbience,
       completionChime,
@@ -317,6 +360,10 @@ export default function SettingsPage() {
   };
 
   const handleResetDefaults = () => {
+    if (isSettingsLocked) {
+      setLockAlert("Focus Lock is active. Settings cannot be reset until your session completes.");
+      return;
+    }
     if (confirm("Reset all settings and active local cache back to factory defaults?")) {
       saveStoredSettings(DEFAULT_SETTINGS);
       saveStoredSpotifyPreferences(DEFAULT_SPOTIFY_PREFS);
@@ -324,6 +371,10 @@ export default function SettingsPage() {
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isSettingsLocked) {
+      setLockAlert("Focus Lock is active. Settings cannot be imported until your session completes.");
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -338,6 +389,7 @@ export default function SettingsPage() {
           autoStartBreaks: typeof parsed.autoStartBreaks === "boolean" ? parsed.autoStartBreaks : undefined,
           autoStartFocus: typeof parsed.autoStartFocus === "boolean" ? parsed.autoStartFocus : undefined,
           strictBlocking: parsed.strictBlocking ? (parsed.strictBlocking.toLowerCase() === "strict" ? "STRICT" : "SUSPEND") : undefined,
+          lockSettingsDuringFocus: typeof parsed.lockSettingsDuringFocus === "boolean" ? parsed.lockSettingsDuringFocus : undefined,
           acousticPreset: parsed.acousticPreset,
           bgAmbienceVolume: typeof parsed.bgAmbienceVolume === "number" ? parsed.bgAmbienceVolume : (typeof parsed.bgAmbience === "number" ? parsed.bgAmbience : undefined),
           completionChime: typeof parsed.completionChime === "boolean" ? parsed.completionChime : undefined,
@@ -397,6 +449,45 @@ export default function SettingsPage() {
         </button>
       </div>
 
+      {/* Lock Active Banner */}
+      {isSettingsLocked && (
+        <div
+          className={`p-4 rounded-2xl border flex items-center justify-between gap-3 transition-colors ${
+            isDark
+              ? "bg-amber-950/20 border-amber-900/40 text-amber-200"
+              : "bg-amber-50 border-amber-200 text-amber-900"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-xl">🔒</span>
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider">
+                Focus Lock Active
+              </h3>
+              <p className="text-xs opacity-90 mt-0.5">
+                Settings and durations are locked during this focus session to keep you distraction-free. Adjustments are disabled until your timer ends.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {lockAlert && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center gap-2.5 transition-all animate-in fade-in ${
+            isDark
+              ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
+              : "bg-amber-50 border-amber-300 text-amber-800"
+          }`}
+        >
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <span className="text-xs font-medium">{lockAlert}</span>
+        </div>
+      )}
+
       {/* Main Settings Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
         {/* LEFT COLUMN: Cadence, Rules & Acoustics */}
@@ -446,9 +537,12 @@ export default function SettingsPage() {
                   max="90"
                   step="5"
                   aria-label="Deep Focus duration"
+                  disabled={isSettingsLocked}
                   value={deepFocusMins}
                   onChange={(e) => setDeepFocusMins(parseInt(e.target.value))}
-                  className="w-full h-1.5 rounded-lg cursor-pointer mb-1.5 bg-[#e2e8f0] dark:bg-[#1c2432]"
+                  className={`w-full h-1.5 rounded-lg mb-1.5 bg-[#e2e8f0] dark:bg-[#1c2432] ${
+                    isSettingsLocked ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+                  }`}
                   style={{ accentColor: isDark ? allModeColors.focus.primaryDark : allModeColors.focus.primary }}
                 />
                 <div className="flex justify-between text-[10px] text-[#64748b] dark:text-[#7e8c9f]">
@@ -474,9 +568,12 @@ export default function SettingsPage() {
                   max="15"
                   step="1"
                   aria-label="Short break duration"
+                  disabled={isSettingsLocked}
                   value={shortBreakMins}
                   onChange={(e) => setShortBreakMins(parseInt(e.target.value))}
-                  className="w-full h-1.5 rounded-lg cursor-pointer mb-1.5 bg-[#e2e8f0] dark:bg-[#1c2432]"
+                  className={`w-full h-1.5 rounded-lg mb-1.5 bg-[#e2e8f0] dark:bg-[#1c2432] ${
+                    isSettingsLocked ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+                  }`}
                   style={{ accentColor: isDark ? allModeColors.shortBreak.primaryDark : allModeColors.shortBreak.primary }}
                 />
                 <div className="flex justify-between text-[10px] text-[#64748b] dark:text-[#7e8c9f]">
@@ -502,9 +599,12 @@ export default function SettingsPage() {
                   max="45"
                   step="5"
                   aria-label="Long break duration"
+                  disabled={isSettingsLocked}
                   value={longBreakMins}
                   onChange={(e) => setLongBreakMins(parseInt(e.target.value))}
-                  className="w-full h-1.5 rounded-lg cursor-pointer mb-1.5 bg-[#e2e8f0] dark:bg-[#1c2432]"
+                  className={`w-full h-1.5 rounded-lg mb-1.5 bg-[#e2e8f0] dark:bg-[#1c2432] ${
+                    isSettingsLocked ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+                  }`}
                   style={{ accentColor: isDark ? allModeColors.longBreak.primaryDark : allModeColors.longBreak.primary }}
                 />
                 <div className="flex justify-between text-[10px] text-[#64748b] dark:text-[#7e8c9f]">
@@ -526,9 +626,18 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center justify-between p-1.5 rounded-lg border bg-white dark:bg-[#141b24] border-[#cbd5e1] dark:border-[#1d2634]">
                   <button
-                    onClick={() => setLongBreakCadence((c) => Math.max(2, c - 1))}
+                    onClick={() => {
+                      if (isSettingsLocked) {
+                        setLockAlert("Focus Lock is active. Settings cannot be modified until your session ends.");
+                        return;
+                      }
+                      setLongBreakCadence((c) => Math.max(2, c - 1));
+                    }}
+                    disabled={isSettingsLocked}
                     aria-label="Decrease long break cadence"
-                    className="w-7 h-7 rounded flex items-center justify-center font-bold text-sm transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer focus-visible:ring-2 focus-visible:outline-none bg-[#f1f5f9] dark:bg-[#1c2432] text-[#0f172a] dark:text-white hover:bg-[#e2e8f0] dark:hover:bg-[#283548] border border-[#cbd5e1] dark:border-transparent"
+                    className={`w-7 h-7 rounded flex items-center justify-center font-bold text-sm transition-all duration-150 focus-visible:ring-2 focus-visible:outline-none bg-[#f1f5f9] dark:bg-[#1c2432] text-[#0f172a] dark:text-white border border-[#cbd5e1] dark:border-transparent ${
+                      isSettingsLocked ? "opacity-50 cursor-not-allowed" : "hover:scale-110 active:scale-90 cursor-pointer hover:bg-[#e2e8f0] dark:hover:bg-[#283548]"
+                    }`}
                     style={{ outlineColor: activeColor }}
                   >
                     −
@@ -537,9 +646,18 @@ export default function SettingsPage() {
                     Every <span style={{ color: activeColor }}>{longBreakCadence}</span> focus sessions
                   </span>
                   <button
-                    onClick={() => setLongBreakCadence((c) => Math.min(8, c + 1))}
+                    onClick={() => {
+                      if (isSettingsLocked) {
+                        setLockAlert("Focus Lock is active. Settings cannot be modified until your session ends.");
+                        return;
+                      }
+                      setLongBreakCadence((c) => Math.min(8, c + 1));
+                    }}
+                    disabled={isSettingsLocked}
                     aria-label="Increase long break cadence"
-                    className="w-7 h-7 rounded flex items-center justify-center font-bold text-sm transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer focus-visible:ring-2 focus-visible:outline-none bg-[#f1f5f9] dark:bg-[#1c2432] text-[#0f172a] dark:text-white hover:bg-[#e2e8f0] dark:hover:bg-[#283548] border border-[#cbd5e1] dark:border-transparent"
+                    className={`w-7 h-7 rounded flex items-center justify-center font-bold text-sm transition-all duration-150 focus-visible:ring-2 focus-visible:outline-none bg-[#f1f5f9] dark:bg-[#1c2432] text-[#0f172a] dark:text-white border border-[#cbd5e1] dark:border-transparent ${
+                      isSettingsLocked ? "opacity-50 cursor-not-allowed" : "hover:scale-110 active:scale-90 cursor-pointer hover:bg-[#e2e8f0] dark:hover:bg-[#283548]"
+                    }`}
                     style={{ outlineColor: activeColor }}
                   >
                     +
@@ -589,9 +707,18 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => setAutoStartBreaks(!autoStartBreaks)}
+                  onClick={() => {
+                    if (isSettingsLocked) {
+                      setLockAlert("Focus Lock is active. Settings cannot be modified until your session ends.");
+                      return;
+                    }
+                    setAutoStartBreaks(!autoStartBreaks);
+                  }}
+                  disabled={isSettingsLocked}
                   aria-label="Toggle auto-start breaks"
-                  className="w-11 h-6 rounded-xl transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none cursor-pointer active:scale-95 bg-[#cbd5e1] dark:bg-[#1c2432]"
+                  className={`w-11 h-6 rounded-xl transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none bg-[#cbd5e1] dark:bg-[#1c2432] ${
+                    isSettingsLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-95"
+                  }`}
                   style={{
                     backgroundColor: autoStartBreaks ? activeColor : undefined,
                     outlineColor: activeColor,
@@ -620,9 +747,18 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => setAutoStartFocus(!autoStartFocus)}
+                  onClick={() => {
+                    if (isSettingsLocked) {
+                      setLockAlert("Focus Lock is active. Settings cannot be modified until your session ends.");
+                      return;
+                    }
+                    setAutoStartFocus(!autoStartFocus);
+                  }}
+                  disabled={isSettingsLocked}
                   aria-label="Toggle auto-start next focus session"
-                  className="w-11 h-6 rounded-xl transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none cursor-pointer active:scale-95 bg-[#cbd5e1] dark:bg-[#1c2432]"
+                  className={`w-11 h-6 rounded-xl transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none bg-[#cbd5e1] dark:bg-[#1c2432] ${
+                    isSettingsLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-95"
+                  }`}
                   style={{
                     backgroundColor: autoStartFocus ? activeColor : undefined,
                     outlineColor: activeColor,
@@ -654,8 +790,17 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center p-1 rounded-xl border bg-[#f1f5f9] dark:bg-[#0b0f17] border-[#cbd5e1] dark:border-[#1d2634]">
                   <button
-                    onClick={() => setStrictBlocking("suspend")}
+                    onClick={() => {
+                      if (isSettingsLocked) {
+                        setLockAlert("Focus Lock is active. Settings cannot be modified until your session ends.");
+                        return;
+                      }
+                      setStrictBlocking("suspend");
+                    }}
+                    disabled={isSettingsLocked}
                     className={`px-3 py-1 rounded-lg text-xs font-medium transition-all focus-visible:ring-2 focus-visible:outline-none ${
+                      isSettingsLocked ? "opacity-50 cursor-not-allowed" : ""
+                    } ${
                       strictBlocking === "suspend"
                         ? "bg-white text-[#0f172a] shadow-sm dark:bg-[#1c2432] dark:text-white"
                         : "text-[#64748b] hover:text-[#0f172a] dark:text-[#7e8c9f] dark:hover:text-white"
@@ -665,8 +810,17 @@ export default function SettingsPage() {
                     Allow browsing
                   </button>
                   <button
-                    onClick={() => setStrictBlocking("strict")}
-                    className="px-3 py-1 rounded-lg text-xs font-semibold transition-all focus-visible:ring-2 focus-visible:outline-none"
+                    onClick={() => {
+                      if (isSettingsLocked) {
+                        setLockAlert("Focus Lock is active. Settings cannot be modified until your session ends.");
+                        return;
+                      }
+                      setStrictBlocking("strict");
+                    }}
+                    disabled={isSettingsLocked}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all focus-visible:ring-2 focus-visible:outline-none ${
+                      isSettingsLocked ? "opacity-50 cursor-not-allowed" : ""
+                    }`}
                     style={
                       strictBlocking === "strict"
                         ? {
@@ -681,6 +835,48 @@ export default function SettingsPage() {
                     Keep blocking
                   </button>
                 </div>
+              </div>
+
+              {/* Item 4: Lock Settings During Focus */}
+              <div className="flex items-center justify-between pt-4">
+                <div>
+                  <h3 className="text-xs font-semibold text-[#0f172a] dark:text-white flex items-center gap-1.5">
+                    <span>Lock Settings During Focus</span>
+                  </h3>
+                  <p className="text-[11px] mt-0.5 text-[#64748b] dark:text-[#7e8c9f]">
+                    Prevent changing timer durations, blocking rules, and settings during active focus sessions
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    if (isSettingsLocked) {
+                      setLockAlert("Focus Lock is active. Settings cannot be modified until your session ends.");
+                      return;
+                    }
+                    setLockSettingsDuringFocus(!lockSettingsDuringFocus);
+                  }}
+                  disabled={isSettingsLocked}
+                  aria-label="Toggle lock settings during focus"
+                  className={`w-11 h-6 rounded-xl transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none bg-[#cbd5e1] dark:bg-[#1c2432] ${
+                    isSettingsLocked
+                      ? "opacity-60 cursor-not-allowed"
+                      : "cursor-pointer active:scale-95"
+                  }`}
+                  style={{
+                    backgroundColor: lockSettingsDuringFocus ? activeColor : undefined,
+                    outlineColor: activeColor,
+                  }}
+                >
+                  <span
+                    className={`w-5 h-5 rounded-lg transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                      lockSettingsDuringFocus
+                        ? isDark
+                          ? "translate-x-5 bg-[#0c1017]"
+                          : "translate-x-5 bg-white shadow-sm"
+                        : "translate-x-0 bg-[#7e8c9f] dark:bg-[#7e8c9f]"
+                    }`}
+                  />
+                </button>
               </div>
             </div>
           </div>
@@ -1483,81 +1679,128 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-4 py-1">
-                  {userPlaylists.length > 0 && (
+                  {/* Quick Playlist Link Importer */}
+                  <form
+                    onSubmit={handleImportCustomPlaylistInModal}
+                    className="flex items-center gap-2"
+                  >
+                    <input
+                      type="text"
+                      value={customPlaylistInput}
+                      onChange={(e) => setCustomPlaylistInput(e.target.value)}
+                      placeholder="Paste any Spotify playlist link or URI to add & select..."
+                      className={`flex-1 px-3 py-2 rounded-xl border text-xs focus:outline-none transition-colors ${
+                        isDark
+                          ? "bg-[#0b0f17] border-[#1c2432] text-white placeholder-[#64748b] focus:border-[#1DB954]"
+                          : "bg-[#f8fafc] border-[#cbd5e1] text-[#0f172a] placeholder-[#94a3b8] focus:border-[#1DB954]"
+                      }`}
+                    />
+                    <button
+                      type="submit"
+                      disabled={isImportingPlaylist || !customPlaylistInput.trim()}
+                      className="px-3.5 py-2 rounded-xl bg-[#1DB954] text-black font-semibold text-xs hover:brightness-105 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                    >
+                      {isImportingPlaylist ? "Adding…" : "Import Playlist"}
+                    </button>
+                  </form>
+
+                  {(isSpotifyConnected || userPlaylists.length > 0) && (
                     <div className="flex flex-col gap-2">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b] dark:text-[#7e8c9f]">
                         Your Spotify Playlists ({userPlaylists.length})
                       </span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        {userPlaylists.map((pl) => {
-                          const isSelected = spotifyPrefs.selectedPlaylistUri === pl.uri;
-                          return (
-                            <button
-                              key={pl.uri}
-                              type="button"
-                              onClick={() => {
-                                handleSelectPlaylist(pl);
-                              }}
-                              className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
-                                isSelected
-                                  ? "border-current shadow-xs"
-                                  : isDark
-                                  ? "bg-[#0b0f17] border-[#1c2432] hover:border-[#2a3649]"
-                                  : "bg-[#f8fafc] border-[#e2e8f0] hover:border-[#cbd5e1]"
-                              }`}
-                              style={
-                                isSelected
-                                  ? {
-                                      backgroundColor: isDark
-                                        ? colors.containerDark
-                                        : colors.container,
-                                      borderColor: activeBorder,
-                                    }
-                                  : undefined
-                              }
-                            >
-                              <div className="w-11 h-11 rounded-lg overflow-hidden bg-[#1c2432] shrink-0">
-                                {pl.imageUrl ? (
-                                  <img
-                                    src={pl.imageUrl}
-                                    alt={pl.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-[#1DB954] text-sm font-bold">
-                                    ♪
-                                  </div>
-                                )}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="text-xs font-bold truncate">
-                                    {pl.name}
-                                  </span>
-                                  {isSelected && (
-                                    <span
-                                      className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
-                                      style={{
-                                        backgroundColor: activeColor,
-                                        color: isDark ? "#00201d" : "#ffffff",
-                                      }}
-                                    >
-                                      Active
-                                    </span>
+                      {userPlaylists.length === 0 ? (
+                        <div
+                          className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
+                            isDark
+                              ? "bg-[#0b0f17] border-[#1c2432] text-[#94a3b8]"
+                              : "bg-[#f8fafc] border-[#e2e8f0] text-[#64748b]"
+                          }`}
+                        >
+                          {spotifyPlaylistsErrorCode === "spotify_dev_mode_restricted" ? (
+                            <span className="text-amber-600 dark:text-amber-400">
+                              Spotify Developer Mode limit reached for automatic library listing. Paste any Spotify playlist link in the box above to import it with all its tracks.
+                            </span>
+                          ) : spotifyPlaylistsError ? (
+                            <span>{spotifyPlaylistsError}</span>
+                          ) : (
+                            <span>
+                              No Spotify playlists found in your library yet. Paste any Spotify playlist link in the box above to add it, or click the refresh button in the top right.
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {userPlaylists.map((pl) => {
+                            const isSelected = spotifyPrefs.selectedPlaylistUri === pl.uri;
+                            return (
+                              <button
+                                key={pl.uri}
+                                type="button"
+                                onClick={() => {
+                                  handleSelectPlaylist(pl);
+                                }}
+                                className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                                  isSelected
+                                    ? "border-current shadow-xs"
+                                    : isDark
+                                    ? "bg-[#0b0f17] border-[#1c2432] hover:border-[#2a3649]"
+                                    : "bg-[#f8fafc] border-[#e2e8f0] hover:border-[#cbd5e1]"
+                                }`}
+                                style={
+                                  isSelected
+                                    ? {
+                                        backgroundColor: isDark
+                                          ? colors.containerDark
+                                          : colors.container,
+                                        borderColor: activeBorder,
+                                      }
+                                    : undefined
+                                }
+                              >
+                                <div className="w-11 h-11 rounded-lg overflow-hidden bg-[#1c2432] shrink-0">
+                                  {pl.imageUrl ? (
+                                    <img
+                                      src={pl.imageUrl}
+                                      alt={pl.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-[#1DB954] text-sm font-bold">
+                                      ♪
+                                    </div>
                                   )}
                                 </div>
-                                <div className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate mt-0.5">
-                                  {isSelected
-                                    ? "Selected for focus"
-                                    : pl.tracksTotal > 0
-                                    ? `${pl.tracksTotal} ${pl.tracksTotal === 1 ? "track" : "tracks"}`
-                                    : "Playlist"}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-xs font-bold truncate">
+                                      {pl.name}
+                                    </span>
+                                    {isSelected && (
+                                      <span
+                                        className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                                        style={{
+                                          backgroundColor: activeColor,
+                                          color: isDark ? "#00201d" : "#ffffff",
+                                        }}
+                                      >
+                                        Active
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate mt-0.5">
+                                    {isSelected
+                                      ? "Selected for focus"
+                                      : pl.tracksTotal > 0
+                                      ? `${pl.tracksTotal} ${pl.tracksTotal === 1 ? "track" : "tracks"}`
+                                      : "Playlist"}
+                                  </div>
                                 </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 

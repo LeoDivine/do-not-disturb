@@ -37,6 +37,7 @@ export interface StoredSpotifySession {
   accessToken: string;
   refreshToken: string;
   expiresAt: number; // timestamp in ms
+  scope?: string;
   user?: {
     id: string;
     displayName: string;
@@ -113,21 +114,80 @@ export function unsealSpotifySession(token: string): StoredSpotifySession | null
   }
 }
 
+export function getSpotifySessionCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: 60 * 60 * 24 * 60, // 60 days
+  };
+}
+
 export async function setSpotifySessionCookie(session: StoredSpotifySession) {
   const cookieStore = await cookies();
   const sealed = sealSpotifySession(session);
-  cookieStore.set(SPOTIFY_TOKEN_COOKIE, sealed, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 60, // 60 days
-  });
+  cookieStore.set(SPOTIFY_TOKEN_COOKIE, sealed, getSpotifySessionCookieOptions());
 }
 
 export async function clearSpotifySessionCookie() {
   const cookieStore = await cookies();
   cookieStore.delete(SPOTIFY_TOKEN_COOKIE);
+}
+
+/**
+ * Explicitly refreshes a Spotify session using its refreshToken and updates the session cookie.
+ */
+export async function refreshSpotifySession(
+  session: StoredSpotifySession
+): Promise<StoredSpotifySession | null> {
+  if (!session.refreshToken) {
+    return null;
+  }
+
+  const { clientId, clientSecret } = getSpotifyCredentials();
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+
+  try {
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    const res = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${basicAuth}`,
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: session.refreshToken,
+      }),
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      return null;
+    }
+
+    const data = await res.json();
+    const updatedSession: StoredSpotifySession = {
+      ...session,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || session.refreshToken,
+      expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
+      scope: typeof data.scope === "string" ? data.scope : session.scope,
+    };
+
+    try {
+      await setSpotifySessionCookie(updatedSession);
+    } catch {
+      // Cookie write may be ignored in certain read-only contexts, still return valid token
+    }
+
+    return updatedSession;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -150,50 +210,10 @@ export async function getValidSpotifySession(): Promise<{
     return { session, refreshed: false };
   }
 
-  // Need to refresh using refreshToken
-  if (!session.refreshToken) {
+  const updatedSession = await refreshSpotifySession(session);
+  if (!updatedSession) {
     return { session: null, refreshed: false };
   }
 
-  const { clientId, clientSecret } = getSpotifyCredentials();
-  if (!clientId || !clientSecret) {
-    return { session: null, refreshed: false };
-  }
-
-  try {
-    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-    const res = await fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${basicAuth}`,
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: session.refreshToken,
-      }),
-    });
-
-    if (!res.ok) {
-      return { session: null, refreshed: false };
-    }
-
-    const data = await res.json();
-    const updatedSession: StoredSpotifySession = {
-      ...session,
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token || session.refreshToken,
-      expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
-    };
-
-    try {
-      await setSpotifySessionCookie(updatedSession);
-    } catch {
-      // Cookie write may be ignored in certain read-only contexts, still return valid token
-    }
-
-    return { session: updatedSession, refreshed: true };
-  } catch {
-    return { session: null, refreshed: false };
-  }
+  return { session: updatedSession, refreshed: true };
 }

@@ -574,11 +574,13 @@ Disconnects Spotify by clearing the encrypted `dnd_spotify_session` session cook
 
 ---
 
-### 7.6 Retrieve Spotify Playlists
-Fetches the authenticated user's private and public playlists (up to 50 items) from the Spotify Web API. If unauthenticated, returns the built-in curated instrumental focus playlists.
+### 7.6 Retrieve Spotify Playlists & Playlist Tracks
+Fetches the authenticated user's private and public playlists from the Spotify Web API (with automatic `401` token refresh retry, `/v1/users/{id}/playlists` fallback, pagination, and structured `errorCode` diagnostics). When `?playlistId=<id>` is provided, resolves both the playlist metadata (`playlist`) and track list (`tracks`) via the Spotify Web API or Spotify's public Embed SSR + oEmbed fallback.
 
 - **Method**: `GET`
 - **Path**: `/api/spotify/playlists`
+- **Query Parameters**:
+  - `playlistId` *(optional)*: Spotify playlist ID (e.g. `37i9dQZF1DWZeKCadgRdKQ`) to resolve full playlist metadata and tracks.
 
 #### Response (200 OK)
 ```json
@@ -647,5 +649,64 @@ Fetches track details (name, artist, album, artwork URL) for a given Spotify tra
   "isPlaying": false,
   "title": "",
   "artist": ""
+}
+```
+
+---
+
+### 7.8 Two-Way Spotify Connect & Web Playback SDK Control
+Provides real-time playback synchronization with the user's Spotify desktop/mobile app and issues fresh access tokens for the browser's `window.Spotify.Player` (Web Playback SDK) instance.
+
+- **Methods**: `GET`, `POST`, `PUT`
+- **Path**: `/api/spotify/player`
+- **Query Parameters (`GET`)**:
+  - `token=1` *(optional)*: Returns `{ connected, accessToken, expiresAt, scope, hasPlaybackControlScope, canStream, product }` for Web Playback SDK initialization.
+  - `devices=1` *(optional)*: Includes the list of available Spotify Connect devices (`/v1/me/player/devices`).
+
+#### Response (`GET /api/spotify/player`, 200 OK)
+```json
+{
+  "connected": true,
+  "isPlaying": true,
+  "progressMs": 42150,
+  "contextUri": "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ",
+  "track": {
+    "id": "4cOdK2wGLETKBW3PvgPWqT",
+    "uri": "spotify:track:4cOdK2wGLETKBW3PvgPWqT",
+    "title": "Time",
+    "artist": "Hans Zimmer",
+    "album": "Inception (OST)",
+    "artworkUrl": "https://i.scdn.co/image/ab67616d0000b273...",
+    "durationMs": 275000
+  },
+  "device": {
+    "id": "4f8a9c...",
+    "name": "Do Not Disturb Focus",
+    "type": "Computer",
+    "isActive": true,
+    "volumePercent": 85
+  },
+  "devices": [],
+  "hasPlaybackControlScope": true,
+  "canStream": true
+}
+```
+
+#### Request Body (`POST` / `PUT /api/spotify/player`)
+```json
+{
+  "action": "play",
+  "uri": "spotify:track:4cOdK2wGLETKBW3PvgPWqT",
+  "contextUri": "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ",
+  "deviceId": "4f8a9c..."
+}
+```
+Supported `action` values: `"play"`, `"resume"`, `"pause"`, `"next"`, `"prev"`, `"transfer"`.
+
+#### Response (`POST` / `PUT`, 200 OK)
+```json
+{
+  "ok": true,
+  "status": 204
 }
 ```

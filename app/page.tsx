@@ -1288,13 +1288,17 @@ export default function DashboardPage() {
 											type="button"
 											onClick={() => {
 												if (typeof window !== "undefined") {
-													window.dispatchEvent(new CustomEvent(OPEN_SPOTIFY_WIDGET_EVENT));
+													window.dispatchEvent(
+														new CustomEvent(OPEN_SPOTIFY_WIDGET_EVENT, {
+															detail: { viewMode: "playlists" },
+														})
+													);
 												}
 											}}
 											className="px-3 py-1.5 rounded-lg text-xs font-semibold text-black cursor-pointer flex items-center gap-1.5 shadow-sm"
 											style={{ backgroundColor: "#1DB954" }}
 										>
-											<span>Open Player</span>
+											<span>Playlists & Player</span>
 											<span>↗</span>
 										</button>
 									</div>

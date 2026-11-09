@@ -18,6 +18,7 @@ export interface UserSettingsPayload {
   autoStartBreaks: boolean;
   autoStartFocus: boolean;
   strictBlocking: "STRICT" | "SUSPEND";
+  lockSettingsDuringFocus?: boolean;
   acousticPreset: string;
   bgAmbienceVolume: number;
   completionChime: boolean;

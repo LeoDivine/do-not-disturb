@@ -10,7 +10,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 - **[Documentation Hub](docs/README.md)**: Main documentation index and navigation guide.
 - **[System Architecture](docs/architecture.md)**: Technical architecture, component interactions, Web Audio synthesis, Spotify audio coordination, and state synchronization.
-- **[Spotify Integration Flow](docs/spotify-integration.md)**: End-to-end OAuth 2.0 flow, AES-256-GCM encrypted cookies, Spotify IFrame Embed Controller, PiP sync, and developer configuration.
+- **[Spotify Integration Flow](docs/spotify-integration.md)**: End-to-end OAuth 2.0 flow, AES-256-GCM encrypted cookies, Two-Way Spotify Connect + Web Playback SDK, Spotify IFrame Embed fallback, PiP sync, and developer configuration.
 - **[Superadmin Telemetry Guide](docs/superadmin-guide.md)**: Privacy-first `/admin` command center, live timer pulse, `k`-anonymity safeguards, and storage hygiene.
 - **[Companion Extension Guide](docs/extension-guide.md)**: Chromium MV3 extension architecture, `declarativeNetRequest` rules engine, installation, and debugging.
 - **[REST API Reference](docs/api-reference.md)**: Full API specifications for authentication, data synchronization, Spotify integration, and assets.
