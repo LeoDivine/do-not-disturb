@@ -64,9 +64,11 @@ flowchart TD
             BChannel[("BroadcastChannel: dnd-spotify-channel & dnd-spotify-command-channel")]
         end
 
-        subgraph Embed ["Spotify Official Embed SDK"]
+        subgraph Embed ["Spotify Playback Engines (Two-Way Connect + Embed Fallback)"]
+            WebPlaybackSDK["Spotify Web Playback SDK (sdk.scdn.co/spotify-player.js)"]
+            ConnectDevice["Spotify Connect Device ('Do Not Disturb Focus')"]
             IFrameSDK["Spotify IFrame API (open.spotify.com/embed/iframe-api/v1)"]
-            EmbedController["EmbedController Instance"]
+            EmbedController["EmbedController Fallback Instance"]
         end
     end
 
@@ -75,14 +77,15 @@ flowchart TD
         CallbackRoute["GET & POST /api/spotify/callback"]
         StatusRoute["GET & DELETE /api/spotify/status"]
         PlaylistsRoute["GET /api/spotify/playlists"]
+        PlayerRoute["GET & POST /api/spotify/player"]
         CurrentTrackRoute["GET /api/spotify/current-track"]
         ServerLib["Spotify Server Engine (lib/spotify/spotify-server.ts)"]
     end
 
     subgraph SpotifyAPI ["Spotify Cloud Services"]
         SpotifyAuth["Accounts Service (accounts.spotify.com)"]
-        SpotifyWebAPI["Spotify Web API (api.spotify.com/v1)"]
-        SpotifyOEmbed["Spotify oEmbed API (open.spotify.com/oembed)"]
+        SpotifyWebAPI["Spotify Web API & Connect (api.spotify.com/v1)"]
+        SpotifyEmbedSSR["Spotify Embed SSR & oEmbed (open.spotify.com)"]
     end
 
     %% Client UI to State
@@ -101,7 +104,10 @@ flowchart TD
     SpotifyStore <--> BChannel
     AudioCoord <--> BChannel
 
-    %% Embed SDK
+    %% Playback SDKs
+    Player --> WebPlaybackSDK
+    WebPlaybackSDK --> ConnectDevice
+    ConnectDevice -- "player_state_changed / ready" --> Player
     Player --> IFrameSDK
     IFrameSDK --> EmbedController
     EmbedController -- "playback_update / ready" --> Player
@@ -110,18 +116,22 @@ flowchart TD
     Dashboard -- "Initiate OAuth" --> AuthRoute
     CallbackPage -- "POST code exchange" --> CallbackRoute
     Player -- "GET status & playlists" --> PlaylistsRoute
+    Player -- "GET/POST Spotify Connect sync" --> PlayerRoute
     Player -- "GET now-playing track info" --> CurrentTrackRoute
     StatusRoute <--> ServerLib
     PlaylistsRoute <--> ServerLib
+    PlayerRoute <--> ServerLib
     CurrentTrackRoute <--> ServerLib
 
     %% Server to Spotify Cloud
     AuthRoute -- "Redirect 302" --> SpotifyAuth
     CallbackRoute -- "Authorization Code Exchange" --> SpotifyAuth
     ServerLib -- "Refresh Expired Access Token" --> SpotifyAuth
-    PlaylistsRoute -- "GET /me/playlists" --> SpotifyWebAPI
+    PlaylistsRoute -- "GET /me/playlists & /users/{id}/playlists" --> SpotifyWebAPI
+    PlaylistsRoute -- "Fallback playlist & tracks SSR" --> SpotifyEmbedSSR
+    PlayerRoute -- "GET/PUT/POST /me/player/*" --> SpotifyWebAPI
     CurrentTrackRoute -- "GET /me/player/currently-playing" --> SpotifyWebAPI
-    CurrentTrackRoute -- "Fallback oEmbed" --> SpotifyOEmbed
+    CurrentTrackRoute -- "Fallback oEmbed" --> SpotifyEmbedSSR
 ```
 
 ---
@@ -132,7 +142,7 @@ Do Not Disturb implements the **OAuth 2.0 Authorization Code Grant** flow with c
 
 ### 3.1 OAuth Scopes Requested
 
-The integration requests minimum required permissions for playlist retrieval and active track inspection:
+The integration requests permissions for playlist retrieval, Web Playback SDK streaming, and two-way Spotify Connect remote control:
 
 | Scope | Purpose |
 | :--- | :--- |
@@ -140,8 +150,10 @@ The integration requests minimum required permissions for playlist retrieval and
 | `user-read-private` | Retrieves user profile, avatar, and subscription tier (`premium` vs `free`). |
 | `playlist-read-private` | Fetches private playlists created or saved by the user. |
 | `playlist-read-collaborative` | Fetches collaborative playlists in the user's library. |
-| `user-read-playback-state` | Reads active player device and playback state. |
+| `user-read-playback-state` | Reads active Spotify Connect player devices and real-time playback state. |
+| `user-modify-playback-state` | Controls playback (`play`, `pause`, `next`, `previous`, device `transfer`) across the website and the user's Spotify app. |
 | `user-read-currently-playing` | Reads the user's currently playing track metadata. |
+| `streaming` | Registers the browser tab as a live Spotify Connect device (`"Do Not Disturb Focus"`) via the Spotify Web Playback SDK. |
 
 ---
 
@@ -201,7 +213,7 @@ sequenceDiagram
 
 ### 4.1 AES-256-GCM Session Sealing
 
-Rather than storing tokens in plain text in cookies or client storage, `lib/spotify/spotify-server.ts` encrypts the payload using authenticated **AES-256-GCM**:
+Rather than persisting tokens in plain text in cookies or `localStorage`, `lib/spotify/spotify-server.ts` stores the long-lived `refreshToken` and session metadata in an HTTP-only, AES-256-GCM encrypted cookie (`dnd_spotify_session`). The short-lived `accessToken` is kept inside the encrypted HTTP-only cookie and only provisioned in-memory on demand via `GET /api/spotify/player?token=1` when initializing the official Spotify Web Playback SDK (`window.Spotify.Player`) for eligible Spotify Premium streaming sessions:
 
 ```typescript
 // Payload Structure
@@ -269,16 +281,29 @@ The 60-second safety buffer ensures tokens never expire mid-request.
 
 ---
 
-## 5. Client Integration & Spotify Embed Controller
+## 5. Client Integration: Two-Way Spotify Connect, Web Playback SDK & Embed Fallback
 
-Spotify playback inside the web application is powered by the **Spotify Official IFrame API** (`https://open.spotify.com/embed/iframe-api/v1`) coupled with an `EmbedController` instance (`components/spotify/spotify-focus-player.tsx`), mounted persistently inside the global floating **Draggable Spotify Widget** (`components/spotify/draggable-spotify-widget.tsx`).
+Spotify playback inside the web application combines the **Spotify Web Playback SDK** (`https://sdk.scdn.co/spotify-player.js`) + **Spotify Connect REST API** (`/api/spotify/player`) for real-time two-way synchronization with the user's native Spotify desktop/mobile app, backed by the **Spotify Official IFrame API** (`https://open.spotify.com/embed/iframe-api/v1`) as a universal fallback (`components/spotify/spotify-focus-player.tsx`), mounted persistently inside the global floating **Draggable Spotify Widget** (`components/spotify/draggable-spotify-widget.tsx`).
 
-### 5.1 Persistent Global Widget & Player Initialization
+### 5.1 Two-Way Spotify App Synchronization (Spotify Connect + Web Playback SDK)
 
-Because `DraggableSpotifyWidget` is mounted in `app/layout.tsx`, the underlying `SpotifyFocusPlayer` instance stays alive across all route transitions (`/`, `/settings`, `/statistics`, `/connected-apps`) without unmounting the Spotify iframe:
+When a user connects their Spotify account:
+1. **Browser as a Live Spotify Connect Device (`"Do Not Disturb Focus"`)**:
+   - `SpotifyFocusPlayer` loads `https://sdk.scdn.co/spotify-player.js` and initializes `new window.Spotify.Player({ name: "Do Not Disturb Focus", getOAuthToken: ... })` using fresh access tokens from `GET /api/spotify/player?token=1`.
+   - When the user plays a track or playlist from the website, their native Spotify mobile or desktop app immediately displays the currently playing song, album artwork, progress bar, and **`Listening on Do Not Disturb Focus`**.
+2. **Bidirectional Song & Playback Control**:
+   - **Spotify App → Website**: Skipping tracks, selecting a new song/playlist, or pausing from the Spotify mobile/desktop app triggers `player_state_changed` events on the Web Playback SDK and updates `GET /api/spotify/player` (polled every 4 seconds while the tab is visible). The website immediately updates `current-track-store.ts` (`setCurrentPlayingTrack`) and `spotify-store.ts` (`lastPlayedTrackUri`) across the floating widget, dashboard, and Picture-in-Picture mini-timer.
+   - **Website → Spotify App**: Selecting any song/playlist or clicking Play/Pause/Next/Previous on the website routes through `POST /api/spotify/player`. When playing a track inside a playlist, `{ context_uri: selectedPlaylistUri, offset: { uri } }` is sent so skipping to the next song in the Spotify app continues seamlessly through that playlist.
+3. **Device Handoff & Fallback**:
+   - The floating widget displays the active Spotify Connect device (`Spotify App · <Device Name>`), a **`Play here`** button to transfer playback from a phone/desktop app into the browser tab, and an **`Open App ↗`** deep link.
+   - If Spotify Connect is unavailable (e.g., guest users not signed in via OAuth, or Free tier accounts without an active remote Spotify app), playback automatically falls back to the built-in `EmbedController` iframe.
+
+### 5.2 Persistent Global Widget & Player Initialization
+
+Because `DraggableSpotifyWidget` is mounted in `app/layout.tsx`, the underlying `SpotifyFocusPlayer` instance stays alive across all route transitions (`/`, `/settings`, `/statistics`, `/connected-apps`) without unmounting:
 - **Floating Draggable Button (`44px`)**: Positioned anywhere on the viewport (persisted to `localStorage` under `dnd_spotify_widget_pos`). Displays a live pulse indicator when Spotify is actively playing.
-- **Compact Popover Controller (`290px`)**: Provides instant track/playlist search, a toggleable `Tracks` vs `Playlists` browser (with drill-down track listings for both personal and curated playlists), inline transport controls (`prev`, `toggle`, `next`), and a toggleable native Spotify Embed drawer (`Show Spotify Embed ▼`).
-- **Shared Client Playlist Deduplication**: `fetchSpotifyPlaylistsShared()` in `lib/spotify/spotify-store.ts` deduplicates concurrent `/api/spotify/playlists` calls across components with a 45-second TTL cache, automatically invalidated on `SPOTIFY_AUTH_UPDATED_EVENT` or cross-tab `BroadcastChannel("dnd-spotify-channel")` auth events.
+- **Compact Popover Controller (`290px`)**: Provides instant track/playlist search, a toggleable `Songs` vs `Playlists` browser (auto-switching to `Playlists` when connected), a manual playlist refresh (`↻`) button, drill-down track listings for both personal and curated playlists, inline transport controls (`prev`, `toggle`, `next`), and a toggleable native Spotify Embed drawer.
+- **Versioned Shared Playlist Cache**: `fetchSpotifyPlaylistsShared()` in `lib/spotify/spotify-store.ts` deduplicates concurrent `/api/spotify/playlists` calls across components with a 45-second TTL cache and a monotonic `playlistsCacheVersion` guard so unauthenticated race calls during `/callback` code exchange never poison the cache.
 - **Theme Binding**: Automatically syncs theme preference (`dark` vs `0`) based on the application's active `ThemeContext`.
 
 ```typescript
@@ -298,7 +323,7 @@ IFrameAPI.createController(mountTarget, options, (EmbedController) => {
 
 ---
 
-### 5.2 Curated Focus Playlists
+### 5.3 Curated Focus Playlists
 
 If the user does not sign into Spotify or wishes to use pre-selected instrumental focus tracks, Do Not Disturb ships with 5 built-in, ad-free ambient focus playlists:
 
@@ -312,14 +337,17 @@ If the user does not sign into Spotify or wishes to use pre-selected instrumenta
 
 ---
 
-### 5.3 Custom URI & URL Parser
+### 5.4 Custom URI/URL Parser & Persistent Playlist Importer
 
-Users can paste arbitrary links or IDs into the player input. The parser (`parseSpotifyInputToUri` in `lib/spotify/spotify-store.ts`) supports:
-
-1. **Spotify URI Scheme**: `spotify:playlist:37i9dQZF1DWZeKCadgRdKQ`, `spotify:album:...`, `spotify:track:...`
-2. **Web URL with Query Parameters**: `https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ?si=abcdef123456`
-3. **Localized Web URLs**: `https://open.spotify.com/intl-de/playlist/37i9dQZF1DWZeKCadgRdKQ`
-4. **Raw 22-Character Spotify Base62 ID**: `37i9dQZF1DWZeKCadgRdKQ` (automatically normalized to `spotify:playlist:37i9dQZF1DWZeKCadgRdKQ`)
+Users can paste arbitrary links or IDs into the floating widget, `/connected-apps`, or the `/settings#sounds` playlist modal.
+1. **URI Normalization (`parseSpotifyInputToUri`)**:
+   - **Spotify URI Scheme**: `spotify:playlist:37i9dQZF1DWZeKCadgRdKQ`, `spotify:album:...`, `spotify:track:...`
+   - **Web URL with Query Parameters**: `https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ?si=abcdef123456`
+   - **Localized Web URLs**: `https://open.spotify.com/intl-de/playlist/37i9dQZF1DWZeKCadgRdKQ`
+   - **Raw 22-Character Spotify Base62 ID**: `37i9dQZF1DWZeKCadgRdKQ` (normalized to `spotify:playlist:37i9dQZF1DWZeKCadgRdKQ`)
+2. **Metadata & Track List Resolution (`importSpotifyPlaylistOrTrack`)**:
+   - Calls `GET /api/spotify/playlists?playlistId=<id>`, which resolves full playlist metadata (`name`, `imageUrl`, `ownerName`, `tracksTotal`) and individual `tracks` via the Spotify Web API or Spotify's public Embed SSR (`open.spotify.com/embed/playlist/<id>`) + oEmbed fallback.
+   - Persists imported playlists in `localStorage` (`dnd_spotify_custom_playlists` via `saveCustomPlaylist()`) and merges them into `fetchSpotifyPlaylistsShared()` so imported playlists always appear under **Your Playlists** even if the Spotify Developer App is in Development Mode (`403 Forbidden` on `/v1/me/playlists`).
 
 ---
 
@@ -514,6 +542,19 @@ Resolves metadata for a specific track URI or queries the user's currently activ
 
 ---
 
+### 7.8 `GET` & `POST /api/spotify/player`
+Provides real-time two-way Spotify Connect synchronization and Web Playback SDK token provisioning.
+
+- **`GET /api/spotify/player?token=1`**:
+  - Returns `{ connected: true, accessToken, expiresAt, scope, hasPlaybackControlScope, canStream, product }` for `window.Spotify.Player` initialization.
+- **`GET /api/spotify/player`**:
+  - Queries `https://api.spotify.com/v1/me/player` (and `/v1/me/player/devices` when `?devices=1` is passed) with automatic `401` token refresh retry.
+  - Returns `{ connected, isPlaying, progressMs, contextUri, track, device, devices, hasPlaybackControlScope, canStream }`.
+- **`POST` / `PUT /api/spotify/player`**:
+  - Executes Spotify Connect remote control actions (`action: "play" | "resume" | "pause" | "next" | "prev" | "transfer"`) with automatic fallback device discovery if Spotify returns `404 No active device`.
+
+---
+
 ## 8. Developer Setup & Configuration
 
 ### 8.1 Spotify Developer App Registration
@@ -566,9 +607,15 @@ SPOTIFY_REDIRECT_URI="http://127.0.0.1:3000/callback"
 - **Cause**: In development mode, React 19 / Next.js Strict Mode invokes `useEffect` hooks twice on mount. Spotify authorization codes are strictly single-use and will fail if exchanged twice.
 - **Fix**: Do Not Disturb incorporates dual-layer inflight promise deduplication in `inflightCodeExchanges` (`app/callback/page.tsx`) and `recentCodeExchanges` (`app/api/spotify/callback/route.ts`), preventing concurrent double-execution.
 
-### Issue 4: Playback stops after 30 seconds
-- **Cause**: The user is using a **Spotify Free** account. Spotify's Web Embed Player plays 30-second previews for non-Premium users on select tracks.
-- **Solution**: Users with **Spotify Premium** enjoy full, uninterrupted playback directly inside the embedded controller. Free users can also keep their native Spotify desktop app open; the audio coordinator will send playback commands via Spotify Web API.
+### Issue 4: Playback stops after 30 seconds or remote control returns `premium_required`
+- **Cause**: The user is using a **Spotify Free** account. Both the Spotify Web Playback SDK (`window.Spotify.Player`) and remote control mutations (`PUT /v1/me/player/play`, `pause`, `next`, `previous`) require a **Spotify Premium** subscription per Spotify's platform policy.
+- **Solution**: Users with **Spotify Premium** enjoy full, uninterrupted playback and two-way Spotify Connect remote control. For Spotify Free accounts, `GET /api/spotify/player?token=1` returns `errorCode: "premium_required"` without loading the Web Playback SDK, and playback automatically uses the built-in Spotify IFrame Embed controller.
+
+### Issue 5: `403 Forbidden` (`spotify_dev_mode_restricted` vs `insufficient_scope`)
+- **Cause**: By default, new apps created in the Spotify Developer Dashboard start in **Development Mode**, which restricts Web API endpoints (`/v1/me/playlists`, `/v1/me/player`) to up to 25 explicitly allowlisted users under **Dashboard → Settings → User Management**.
+- **Solution**:
+  - Add test users' full name and Spotify account email under **User Management** in the Spotify Developer Dashboard, or request **Extended Quota Mode** for production multi-user access.
+  - Do Not Disturb inspects the Spotify error body on `403` responses (`parseSpotifyError` in `app/api/spotify/player/route.ts`) to distinguish true missing OAuth scopes (`insufficient_scope`, which prompts `Enable App Sync →`) from Development Mode restrictions (`spotify_dev_mode_restricted`, which falls back cleanly to the embedded player and public playlist SSR without a re-auth loop).
 
 ---
 
@@ -587,5 +634,6 @@ SPOTIFY_REDIRECT_URI="http://127.0.0.1:3000/callback"
 | [`app/api/spotify/auth/route.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/api/spotify/auth/route.ts) | OAuth initiation, CSRF state generation, and redirect to Spotify Accounts. |
 | [`app/api/spotify/callback/route.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/api/spotify/callback/route.ts) | OAuth code exchange, user profile retrieval, and encrypted session creation. |
 | [`app/api/spotify/status/route.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/api/spotify/status/route.ts) | Checks connection status, user details, and handles account disconnect. |
-| [`app/api/spotify/playlists/route.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/api/spotify/playlists/route.ts) | Fetches user playlists from Spotify Web API with curated fallback. |
+| [`app/api/spotify/playlists/route.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/api/spotify/playlists/route.ts) | Fetches user playlists and single-playlist tracklists via Spotify Web API, Embed SSR, or oEmbed fallback. |
+| [`app/api/spotify/player/route.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/api/spotify/player/route.ts) | Two-way Spotify Connect playback state sync, remote transport control (`play`, `pause`, `next`, `prev`, `transfer`), and Web Playback SDK token endpoint. |
 | [`app/api/spotify/current-track/route.ts`](file:///c:/Users/USER/Documents/Projects/[frontend]/Personal/do-not-disturb/app/api/spotify/current-track/route.ts) | Fetches active track metadata via Web API or oEmbed fallback. |

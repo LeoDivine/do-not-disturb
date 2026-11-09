@@ -170,6 +170,7 @@ interface TimerContextType {
   allModeColors: Record<SessionMode, ModeColorConfig>;
   settings: UserSettingsPayload;
   durations: Record<SessionMode, number>;
+  isSettingsLocked: boolean;
 }
 
 const TimerContext = createContext<TimerContextType | null>(null);
@@ -1184,6 +1185,15 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const activeBorder = isDark ? currentConfig.borderDark : currentConfig.border;
   const activeText = isDark ? currentConfig.textDark : currentConfig.text;
 
+  // Lock Settings During Focus: when enabled, settings and blocklist modifications are locked while a focus session is in progress
+  const isSettingsLocked = useMemo(() => {
+    return Boolean(
+      settings.lockSettingsDuringFocus &&
+      mode === "focus" &&
+      (isRunning || (secondsLeft < totalSeconds && secondsLeft > 0))
+    );
+  }, [settings.lockSettingsDuringFocus, mode, isRunning, secondsLeft, totalSeconds]);
+
   const value = useMemo(
     () => ({
       mode,
@@ -1217,6 +1227,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       allModeColors: MODE_COLORS,
       settings,
       durations,
+      isSettingsLocked,
     }),
     [
       mode,
@@ -1249,6 +1260,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       currentConfig,
       settings,
       durations,
+      isSettingsLocked,
     ]
   );
 

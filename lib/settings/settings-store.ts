@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: UserSettingsPayload = {
   autoStartBreaks: true,
   autoStartFocus: false,
   strictBlocking: "STRICT",
+  lockSettingsDuringFocus: false,
   acousticPreset: "rain",
   bgAmbienceVolume: 65,
   completionChime: true,
@@ -62,6 +63,10 @@ export function getStoredSettings(): UserSettingsPayload {
         parsed.strictBlocking === "SUSPEND" || parsed.strictBlocking === "suspend"
           ? "SUSPEND"
           : "STRICT",
+      lockSettingsDuringFocus:
+        typeof parsed.lockSettingsDuringFocus === "boolean"
+          ? parsed.lockSettingsDuringFocus
+          : Boolean(DEFAULT_SETTINGS.lockSettingsDuringFocus),
       acousticPreset:
         typeof parsed.acousticPreset === "string" && [
           "rain", "binaural", "space", "campfire", "cafe", "waves",

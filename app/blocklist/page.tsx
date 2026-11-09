@@ -17,18 +17,33 @@ import {
 	DeflectionDayStat,
 	DEFLECTIONS_UPDATED_EVENT,
 } from "../../lib/blocking/blocklist-store";
+import {
+	getStoredSettings,
+	saveStoredSettings,
+} from "../../lib/settings/settings-store";
 import { extensionClient } from "../../lib/blocking/extension-client";
 
 export default function BlocklistPage() {
 	const { isDark } = useTheme();
-	const { mode, colors, activeColor, activeContainer, activeBorder } =
-		useTimer();
+	const {
+		mode,
+		colors,
+		activeColor,
+		activeContainer,
+		activeBorder,
+		isSettingsLocked,
+		settings,
+	} = useTimer();
 
 	const [endpoints, setEndpoints] = useState<BlocklistEndpoint[]>([]);
 	const [newRuleDomain, setNewRuleDomain] = useState<string>("");
 	const [inputError, setInputError] = useState<string | null>(null);
 	const [filterQuery, setFilterQuery] = useState<string>("");
-	const [strictFocusShield, setStrictFocusShield] = useState<boolean>(true);
+	const [lockSettingsDuringFocus, setLockSettingsDuringFocus] =
+		useState<boolean>(() => {
+			return getStoredSettings().lockSettingsDuringFocus ?? false;
+		});
+	const [lockAlert, setLockAlert] = useState<string | null>(null);
 	const [pausedAll, setPausedAll] = useState<boolean>(false);
 
 	const [totalDeflections, setTotalDeflections] = useState<number>(0);
@@ -36,6 +51,30 @@ export default function BlocklistPage() {
 		DeflectionDayStat[]
 	>([]);
 	const [weekDateRange, setWeekDateRange] = useState<string>("");
+
+	useEffect(() => {
+		if (settings?.lockSettingsDuringFocus !== undefined) {
+			setLockSettingsDuringFocus(Boolean(settings.lockSettingsDuringFocus));
+		}
+	}, [settings?.lockSettingsDuringFocus]);
+
+	useEffect(() => {
+		if (!lockAlert) return;
+		const timer = setTimeout(() => setLockAlert(null), 4000);
+		return () => clearTimeout(timer);
+	}, [lockAlert]);
+
+	const handleToggleLockSettings = () => {
+		if (isSettingsLocked) {
+			setLockAlert(
+				"Focus Lock is active. Settings and blocklist are locked until your session completes.",
+			);
+			return;
+		}
+		const nextVal = !lockSettingsDuringFocus;
+		setLockSettingsDuringFocus(nextVal);
+		saveStoredSettings({ lockSettingsDuringFocus: nextVal });
+	};
 
 	// Load from persistent storage
 	useEffect(() => {
@@ -95,6 +134,11 @@ export default function BlocklistPage() {
 	const handleAddDomain = (e: React.FormEvent) => {
 		e.preventDefault();
 		setInputError(null);
+		if (isSettingsLocked) {
+			setInputError("Blocklist is locked while Focus Lock is active.");
+			setLockAlert("Focus Lock is active. Blocklist changes are locked until your session completes.");
+			return;
+		}
 		if (!newRuleDomain.trim()) return;
 
 		const result = addDomainToBlocklist(newRuleDomain);
@@ -110,12 +154,20 @@ export default function BlocklistPage() {
 	};
 
 	const handleToggleActive = (id: string) => {
+		if (isSettingsLocked) {
+			setLockAlert("Focus Lock is active. Cannot toggle rules until your session completes.");
+			return;
+		}
 		const updated = toggleDomainActive(id);
 		setEndpoints(updated);
 		syncWithExtension(updated);
 	};
 
 	const handleDeleteDomain = (id: string) => {
+		if (isSettingsLocked) {
+			setLockAlert("Focus Lock is active. Cannot delete rules until your session completes.");
+			return;
+		}
 		const updated = removeDomainFromBlocklist(id);
 		setEndpoints(updated);
 		syncWithExtension(updated);
@@ -140,6 +192,45 @@ export default function BlocklistPage() {
 					}
 				</p>
 			</div>
+
+			{/* Lock Active Banner */}
+			{isSettingsLocked && (
+				<div
+					className={`p-4 rounded-2xl border flex items-center justify-between gap-3 transition-colors ${
+						isDark ?
+							"bg-amber-950/20 border-amber-900/40 text-amber-200"
+						:	"bg-amber-50 border-amber-200 text-amber-900"
+					}`}
+				>
+					<div className="flex items-center gap-3">
+						<span className="text-xl">🔒</span>
+						<div>
+							<h3 className="text-xs font-bold uppercase tracking-wider">
+								Focus Lock Active
+							</h3>
+							<p className="text-xs opacity-90 mt-0.5">
+								Your website blocklist is currently locked to preserve your flow. Editing or deleting rules is disabled until your focus timer ends.
+							</p>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{lockAlert && (
+				<div
+					className={`p-3.5 rounded-xl border flex items-center gap-2.5 transition-all animate-in fade-in ${
+						isDark ?
+							"bg-amber-500/10 border-amber-500/30 text-amber-300"
+						:	"bg-amber-50 border-amber-300 text-amber-800"
+					}`}
+				>
+					<svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+						<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+						<path d="M7 11V7a5 5 0 0 1 10 0v4" />
+					</svg>
+					<span className="text-xs font-medium">{lockAlert}</span>
+				</div>
+			)}
 
 			{/* Main Blocklist Grid */}
 			<div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
@@ -203,12 +294,19 @@ export default function BlocklistPage() {
 									</svg>
 									<input
 										type="text"
-										placeholder="e.g. reddit.com or youtube.com"
+										placeholder={
+											isSettingsLocked ?
+												"Locked during focus session..."
+											:	"e.g. reddit.com or youtube.com"
+										}
 										value={newRuleDomain}
+										disabled={isSettingsLocked}
 										onChange={(e) =>
 											setNewRuleDomain(e.target.value)
 										}
 										className={`w-full bg-transparent py-3 text-sm focus:outline-none placeholder:text-[#7e8c9f] font-mono ${
+											isSettingsLocked ? "opacity-60 cursor-not-allowed" : ""
+										} ${
 											isDark ? "text-white" : (
 												"text-[#0f172a]"
 											)
@@ -217,7 +315,12 @@ export default function BlocklistPage() {
 								</div>
 								<button
 									type="submit"
-									className="w-full sm:w-auto px-6 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5 transition-all active:scale-[0.99] shrink-0 shadow-sm focus-visible:ring-2 focus-visible:outline-none cursor-pointer"
+									disabled={isSettingsLocked}
+									className={`w-full sm:w-auto px-6 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5 transition-all shrink-0 shadow-sm focus-visible:ring-2 focus-visible:outline-none ${
+										isSettingsLocked ?
+											"opacity-50 cursor-not-allowed"
+										:	"cursor-pointer active:scale-[0.99]"
+									}`}
 									style={{
 										backgroundColor: activeColor,
 										color:
@@ -352,6 +455,10 @@ export default function BlocklistPage() {
 								{/* Pause All Toggle */}
 								<button
 									onClick={() => {
+										if (isSettingsLocked) {
+											setLockAlert("Blocklist is locked while Focus Lock is active.");
+											return;
+										}
 										const nextState = !pausedAll;
 										setPausedAll(nextState);
 										const updated = endpoints.map((e) => ({
@@ -362,13 +469,16 @@ export default function BlocklistPage() {
 										setEndpoints(updated);
 										syncWithExtension(updated);
 									}}
-									className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition-colors shrink-0 focus-visible:ring-2 focus-visible:outline-none cursor-pointer ${
-										pausedAll ?
-											"border-current font-semibold"
-										:	"border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] hover:bg-[#f1f5f9] dark:hover:bg-[#1a2330] text-[#64748b] dark:text-[#7e8c9f]"
+									disabled={isSettingsLocked}
+									className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition-colors shrink-0 focus-visible:ring-2 focus-visible:outline-none ${
+										isSettingsLocked ?
+											"opacity-50 cursor-not-allowed border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] text-[#64748b] dark:text-[#7e8c9f]"
+										: pausedAll ?
+											"border-current font-semibold cursor-pointer"
+										:	"border-[#cbd5e1] dark:border-[#222d3d] bg-white dark:bg-[#141b24] hover:bg-[#f1f5f9] dark:hover:bg-[#1a2330] text-[#64748b] dark:text-[#7e8c9f] cursor-pointer"
 									}`}
 									style={
-										pausedAll ?
+										!isSettingsLocked && pausedAll ?
 											{
 												backgroundColor:
 													isDark ?
@@ -465,8 +575,13 @@ export default function BlocklistPage() {
 												onClick={() =>
 													handleToggleActive(item.id)
 												}
+												disabled={isSettingsLocked}
 												aria-label={`Toggle blocking for ${item.domain}`}
-												className="w-11 h-6 rounded-full transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none cursor-pointer active:scale-95"
+												className={`w-11 h-6 rounded-full transition-all duration-200 relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none ${
+													isSettingsLocked ?
+														"opacity-50 cursor-not-allowed"
+													:	"cursor-pointer active:scale-95"
+												}`}
 												style={{
 													backgroundColor:
 														item.active ?
@@ -491,8 +606,13 @@ export default function BlocklistPage() {
 												onClick={() =>
 													handleDeleteDomain(item.id)
 												}
+												disabled={isSettingsLocked}
 												aria-label={`Remove ${item.domain}`}
-												className={`hover:text-red-500 hover:scale-110 active:scale-90 p-1.5 rounded transition-all duration-200 focus-visible:ring-2 focus-visible:outline-none cursor-pointer ${
+												className={`p-1.5 rounded transition-all duration-200 focus-visible:ring-2 focus-visible:outline-none ${
+													isSettingsLocked ?
+														"opacity-30 cursor-not-allowed"
+													:	"hover:text-red-500 hover:scale-110 active:scale-90 cursor-pointer"
+												} ${
 													isDark ? "text-[#7e8c9f]"
 													:	"text-[#64748b]"
 												}`}
@@ -732,14 +852,17 @@ export default function BlocklistPage() {
 								</h3>
 							</div>
 							<button
-								onClick={() =>
-									setStrictFocusShield(!strictFocusShield)
-								}
+								onClick={handleToggleLockSettings}
+								disabled={isSettingsLocked}
 								aria-label="Toggle focus lock"
-								className="w-11 h-6 rounded-full transition-colors relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none"
+								className={`w-11 h-6 rounded-full transition-colors relative flex items-center p-0.5 focus-visible:ring-2 focus-visible:outline-none ${
+									isSettingsLocked ?
+										"opacity-60 cursor-not-allowed"
+									:	"cursor-pointer"
+								}`}
 								style={{
 									backgroundColor:
-										strictFocusShield ? activeColor
+										lockSettingsDuringFocus ? activeColor
 										: isDark ? "#1c2432"
 										: "#cbd5e1",
 									outlineColor: activeColor,
@@ -747,7 +870,7 @@ export default function BlocklistPage() {
 							>
 								<span
 									className={`w-5 h-5 rounded-full transition-transform ${
-										strictFocusShield ?
+										lockSettingsDuringFocus ?
 											isDark ?
 												"translate-x-5 bg-[#00201d]"
 											:	"translate-x-5 bg-white shadow-sm"
@@ -767,23 +890,43 @@ export default function BlocklistPage() {
 
 						<div
 							className={`p-3.5 rounded-xl border flex items-start gap-2.5 transition-colors ${
-								isDark ? "bg-[#0b0f17]" : "bg-[#f8fafc]"
+								isSettingsLocked ?
+									isDark ? "bg-[#1f1707] border-amber-500/40"
+									: "bg-amber-50 border-amber-300"
+								: isDark ? "bg-[#0b0f17]"
+								: "bg-[#f8fafc]"
 							}`}
 							style={{
 								borderColor:
-									isDark ? colors.borderDark : colors.border,
+									isSettingsLocked ?
+										undefined
+									: isDark ? colors.borderDark
+									: colors.border,
 							}}
 						>
 							<span
-								className="w-2 h-2 rounded-full shrink-0 mt-1.5 transition-colors animate-pulse"
-								style={{ backgroundColor: activeColor }}
+								className={`w-2 h-2 rounded-full shrink-0 mt-1.5 transition-colors ${
+									isSettingsLocked ?
+										"animate-pulse bg-amber-500"
+									: lockSettingsDuringFocus ?
+										"bg-emerald-500"
+									:	"bg-slate-400"
+								}`}
 							/>
 							<p
-								className="text-[11px] leading-tight font-medium transition-colors"
-								style={{ color: activeColor }}
+								className={`text-[11px] leading-tight font-medium transition-colors ${
+									isSettingsLocked ?
+										isDark ? "text-amber-400"
+										: "text-amber-700"
+									: isDark ? "text-[#7e8c9f]"
+									: "text-[#64748b]"
+								}`}
 							>
-								Strict mode is active. Settings stay locked
-								until your timer ends.
+								{isSettingsLocked ?
+									"Strict mode is active. Settings stay locked until your timer ends."
+								: lockSettingsDuringFocus ?
+									"Armed: Settings and blocklist will automatically lock whenever a focus session is running."
+								:	"Inactive: Settings and blocklist can be modified at any time."}
 							</p>
 						</div>
 					</div>

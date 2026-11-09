@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getRequestOrigin,
   getSpotifyCredentials,
+  getSpotifySessionCookieOptions,
   normalizeSpotifyRedirectUri,
   resolveSpotifyRedirectUri,
+  sealSpotifySession,
   setSpotifySessionCookie,
   SPOTIFY_OAUTH_REDIRECT_COOKIE,
   SPOTIFY_OAUTH_STATE_COOKIE,
+  SPOTIFY_TOKEN_COOKIE,
   StoredSpotifySession,
 } from "@/lib/spotify/spotify-server";
 
@@ -135,6 +138,7 @@ async function performSpotifyCodeExchange(
     accessToken,
     refreshToken,
     expiresAt: Date.now() + expiresIn * 1000,
+    scope: typeof tokenData.scope === "string" ? tokenData.scope : undefined,
     user: userProfile,
   };
 
@@ -208,6 +212,7 @@ export async function GET(req: NextRequest) {
   }
 
   await setSpotifySessionCookie(result.session);
+  const sealed = sealSpotifySession(result.session);
 
   const accountName = result.session.user?.displayName || "Spotify Account";
   const successRes = NextResponse.redirect(
@@ -217,6 +222,11 @@ export async function GET(req: NextRequest) {
       )}`,
       origin
     )
+  );
+  successRes.cookies.set(
+    SPOTIFY_TOKEN_COOKIE,
+    sealed,
+    getSpotifySessionCookieOptions()
   );
   successRes.cookies.delete(SPOTIFY_OAUTH_STATE_COOKIE);
   successRes.cookies.delete(SPOTIFY_OAUTH_REDIRECT_COOKIE);
@@ -271,6 +281,7 @@ export async function POST(req: NextRequest) {
     }
 
     await setSpotifySessionCookie(result.session);
+    const sealed = sealSpotifySession(result.session);
 
     const res = NextResponse.json({
       ok: true,
@@ -279,6 +290,11 @@ export async function POST(req: NextRequest) {
         displayName: "Spotify Listener",
       },
     });
+    res.cookies.set(
+      SPOTIFY_TOKEN_COOKIE,
+      sealed,
+      getSpotifySessionCookieOptions()
+    );
     res.cookies.delete(SPOTIFY_OAUTH_STATE_COOKIE);
     res.cookies.delete(SPOTIFY_OAUTH_REDIRECT_COOKIE);
     return res;

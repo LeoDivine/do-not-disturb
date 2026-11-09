@@ -33,8 +33,14 @@ export interface SpotifyStoredPreference {
 }
 
 export const SPOTIFY_PREFS_STORAGE_KEY = "dnd_spotify_preferences";
+export const SPOTIFY_CUSTOM_PLAYLISTS_STORAGE_KEY = "dnd_spotify_custom_playlists";
 export const SPOTIFY_PREFS_UPDATED_EVENT = "dnd-spotify-prefs-updated";
 export const SPOTIFY_AUTH_UPDATED_EVENT = "dnd-spotify-auth-updated";
+
+const STORE_ORIGIN_ID =
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `dnd-store-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 export const CURATED_FOCUS_PLAYLISTS: SpotifyPlaylistItem[] = [
   {
@@ -355,7 +361,11 @@ export function saveStoredSpotifyPreferences(
       );
       if (typeof BroadcastChannel !== "undefined") {
         const bc = new BroadcastChannel("dnd-spotify-channel");
-        bc.postMessage({ type: "SPOTIFY_PREFS_SYNC", prefs: merged });
+        bc.postMessage({
+          type: "SPOTIFY_PREFS_SYNC",
+          prefs: merged,
+          originId: STORE_ORIGIN_ID,
+        });
         bc.close();
       }
     } catch (e) {
@@ -387,7 +397,11 @@ export function subscribeToSpotifyPreferences(
     try {
       bc = new BroadcastChannel("dnd-spotify-channel");
       bc.onmessage = (ev) => {
-        if (ev.data?.type === "SPOTIFY_PREFS_SYNC" && ev.data.prefs) {
+        if (
+          ev.data?.type === "SPOTIFY_PREFS_SYNC" &&
+          ev.data.prefs &&
+          ev.data.originId !== STORE_ORIGIN_ID
+        ) {
           callback(ev.data.prefs);
         }
       };
@@ -404,22 +418,245 @@ export function subscribeToSpotifyPreferences(
   };
 }
 
+export function getSavedCustomPlaylists(): SpotifyPlaylistItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(SPOTIFY_CUSTOM_PLAYLISTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is SpotifyPlaylistItem =>
+        Boolean(
+          item &&
+            typeof item.uri === "string" &&
+            item.uri.startsWith("spotify:playlist:") &&
+            typeof item.name === "string"
+        )
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomPlaylist(playlist: SpotifyPlaylistItem): SpotifyPlaylistItem[] {
+  if (typeof window === "undefined") return [playlist];
+  if (!playlist.uri.startsWith("spotify:playlist:")) {
+    return getSavedCustomPlaylists();
+  }
+  try {
+    const existing = getSavedCustomPlaylists();
+    const deduped = [
+      { ...playlist, isCurated: false },
+      ...existing.filter((p) => p.uri !== playlist.uri && p.id !== playlist.id),
+    ].slice(0, 50);
+    localStorage.setItem(SPOTIFY_CUSTOM_PLAYLISTS_STORAGE_KEY, JSON.stringify(deduped));
+    return deduped;
+  } catch {
+    return [playlist];
+  }
+}
+
+export function removeCustomPlaylist(uri: string): SpotifyPlaylistItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const existing = getSavedCustomPlaylists();
+    const next = existing.filter((p) => p.uri !== uri);
+    localStorage.setItem(SPOTIFY_CUSTOM_PLAYLISTS_STORAGE_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return [];
+  }
+}
+
+export function clearCustomPlaylists(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(SPOTIFY_CUSTOM_PLAYLISTS_STORAGE_KEY);
+  } catch {}
+}
+
+function mergePlaylistsWithCustom(
+  apiPlaylists: SpotifyPlaylistItem[],
+  includeCustom = true
+): SpotifyPlaylistItem[] {
+  const custom = includeCustom ? getSavedCustomPlaylists() : [];
+  const curatedUris = new Set(CURATED_FOCUS_PLAYLISTS.map((c) => c.uri));
+  const seenUris = new Set<string>();
+  const merged: SpotifyPlaylistItem[] = [];
+
+  for (const pl of apiPlaylists) {
+    if (!pl?.uri || seenUris.has(pl.uri)) continue;
+    seenUris.add(pl.uri);
+    merged.push(pl);
+  }
+
+  for (const pl of custom) {
+    if (!pl?.uri || seenUris.has(pl.uri) || curatedUris.has(pl.uri)) continue;
+    seenUris.add(pl.uri);
+    merged.push(pl);
+  }
+
+  // Also ensure the currently selected playlist (if custom/user-selected and not curated) is included when connected/custom enabled
+  if (includeCustom && typeof window !== "undefined") {
+    const prefs = getStoredSpotifyPreferences();
+    if (
+      prefs.selectedPlaylistUri?.startsWith("spotify:playlist:") &&
+      !seenUris.has(prefs.selectedPlaylistUri) &&
+      !curatedUris.has(prefs.selectedPlaylistUri)
+    ) {
+      const id = prefs.selectedPlaylistUri.split(":")[2] || prefs.selectedPlaylistUri;
+      seenUris.add(prefs.selectedPlaylistUri);
+      merged.push({
+        id,
+        uri: prefs.selectedPlaylistUri,
+        name: prefs.selectedPlaylistName || "Custom Spotify Playlist",
+        description: "Saved Spotify playlist",
+        imageUrl: prefs.selectedPlaylistImage || null,
+        tracksTotal: 0,
+        ownerName: prefs.selectedPlaylistOwner || "Spotify",
+        externalUrl: `https://open.spotify.com/playlist/${id}`,
+        isCurated: false,
+      });
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Resolves a pasted Spotify playlist/album/track URL or URI, enriches playlist metadata
+ * via `/api/spotify/playlists?playlistId=...`, persists custom playlists to localStorage,
+ * and updates active Spotify preferences.
+ */
+export async function importSpotifyPlaylistOrTrack(input: string): Promise<{
+  type: "playlist" | "album" | "track";
+  uri: string;
+  id: string;
+  playlist: SpotifyPlaylistItem | null;
+  tracks: SpotifyTrackItem[];
+} | null> {
+  const parsed = parseSpotifyInputToUri(input);
+  if (!parsed) return null;
+
+  const currentPrefs = getStoredSpotifyPreferences();
+  const nextAudioSource: AudioSourceMode =
+    currentPrefs.audioSource === "both" ? "both" : "spotify";
+
+  if (parsed.type === "track") {
+    saveStoredSpotifyPreferences({
+      lastPlayedTrackUri: parsed.uri,
+      audioSource: nextAudioSource,
+    });
+    return {
+      type: "track",
+      uri: parsed.uri,
+      id: parsed.id,
+      playlist: null,
+      tracks: [],
+    };
+  }
+
+  let resolvedPlaylist: SpotifyPlaylistItem = {
+    id: parsed.id,
+    uri: parsed.uri,
+    name: parsed.type === "album" ? "Spotify Album" : "Spotify Playlist",
+    description: "Imported via Spotify link",
+    imageUrl: null,
+    tracksTotal: 0,
+    ownerName: "Spotify",
+    externalUrl: `https://open.spotify.com/${parsed.type}/${parsed.id}`,
+    isCurated: false,
+  };
+  let resolvedTracks: SpotifyTrackItem[] = [];
+
+  if (parsed.type === "playlist") {
+    try {
+      const res = await fetch(
+        `/api/spotify/playlists?playlistId=${encodeURIComponent(parsed.id)}`,
+        { cache: "no-store" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.tracks)) {
+          resolvedTracks = data.tracks;
+        }
+        if (data.playlist && typeof data.playlist.name === "string") {
+          resolvedPlaylist = {
+            id: data.playlist.id || parsed.id,
+            uri: data.playlist.uri || parsed.uri,
+            name: data.playlist.name,
+            description: data.playlist.description || "Imported via Spotify link",
+            imageUrl: data.playlist.imageUrl || null,
+            tracksTotal:
+              typeof data.playlist.tracksTotal === "number" && data.playlist.tracksTotal > 0
+                ? data.playlist.tracksTotal
+                : resolvedTracks.length,
+            ownerName: data.playlist.ownerName || "Spotify",
+            externalUrl:
+              data.playlist.externalUrl || `https://open.spotify.com/playlist/${parsed.id}`,
+            isCurated: false,
+          };
+        } else if (resolvedTracks.length > 0) {
+          resolvedPlaylist.tracksTotal = resolvedTracks.length;
+        }
+      }
+    } catch {
+      // Fallback to basic resolvedPlaylist if network call fails
+    }
+  }
+
+  if (parsed.type === "playlist") {
+    saveCustomPlaylist(resolvedPlaylist);
+  }
+  saveStoredSpotifyPreferences({
+    selectedPlaylistUri: resolvedPlaylist.uri,
+    selectedPlaylistName: resolvedPlaylist.name,
+    selectedPlaylistImage: resolvedPlaylist.imageUrl,
+    selectedPlaylistOwner: resolvedPlaylist.ownerName,
+    audioSource: nextAudioSource,
+    lastPlayedTrackUri: null,
+  });
+
+  if (cachedPlaylistsData && parsed.type === "playlist") {
+    cachedPlaylistsData = {
+      ...cachedPlaylistsData,
+      playlists: mergePlaylistsWithCustom(cachedPlaylistsData.playlists, true),
+    };
+  }
+
+  return {
+    type: parsed.type,
+    uri: resolvedPlaylist.uri,
+    id: resolvedPlaylist.id,
+    playlist: resolvedPlaylist,
+    tracks: resolvedTracks,
+  };
+}
+
 export interface SpotifyPlaylistsApiResponse {
   connected: boolean;
   user: SpotifyProfile | null;
   playlists: SpotifyPlaylistItem[];
   curated: SpotifyPlaylistItem[];
+  error?: string | null;
+  errorCode?: string | null;
 }
 
 let cachedPlaylistsData: SpotifyPlaylistsApiResponse | null = null;
 let cachedPlaylistsTimestamp = 0;
 let inFlightPlaylistsPromise: Promise<SpotifyPlaylistsApiResponse> | null = null;
+let inFlightPlaylistsStartedAt = 0;
+let playlistsCacheVersion = 0;
 const PLAYLISTS_CACHE_TTL_MS = 45_000;
+const DISCONNECTED_CACHE_TTL_MS = 10_000;
 
 export function invalidateSpotifyPlaylistsCache(): void {
+  playlistsCacheVersion += 1;
   cachedPlaylistsData = null;
   cachedPlaylistsTimestamp = 0;
   inFlightPlaylistsPromise = null;
+  inFlightPlaylistsStartedAt = 0;
 }
 
 /**
@@ -429,65 +666,101 @@ export function invalidateSpotifyPlaylistsCache(): void {
 export async function fetchSpotifyPlaylistsShared(
   forceRefresh = false
 ): Promise<SpotifyPlaylistsApiResponse> {
+  const now = Date.now();
+
   if (forceRefresh) {
+    // If another subscriber just started a fresh fetch within the last 1000ms (e.g., on SPOTIFY_AUTH_UPDATED_EVENT),
+    // share that in-flight request instead of cancelling it and firing 5 duplicate requests.
+    if (inFlightPlaylistsPromise && now - inFlightPlaylistsStartedAt < 1000) {
+      return inFlightPlaylistsPromise;
+    }
     invalidateSpotifyPlaylistsCache();
   }
 
-  const now = Date.now();
-  if (
-    !forceRefresh &&
-    cachedPlaylistsData &&
-    now - cachedPlaylistsTimestamp < PLAYLISTS_CACHE_TTL_MS
-  ) {
-    return cachedPlaylistsData;
+  if (!forceRefresh && cachedPlaylistsData) {
+    const ttl = cachedPlaylistsData.connected
+      ? PLAYLISTS_CACHE_TTL_MS
+      : DISCONNECTED_CACHE_TTL_MS;
+    if (now - cachedPlaylistsTimestamp < ttl) {
+      const includeCustom =
+        cachedPlaylistsData.connected || getSavedCustomPlaylists().length > 0;
+      return {
+        ...cachedPlaylistsData,
+        playlists: mergePlaylistsWithCustom(
+          cachedPlaylistsData.playlists,
+          includeCustom
+        ),
+      };
+    }
   }
 
   if (inFlightPlaylistsPromise) {
     return inFlightPlaylistsPromise;
   }
 
-  inFlightPlaylistsPromise = (async () => {
+  const requestVersion = playlistsCacheVersion;
+  inFlightPlaylistsStartedAt = now;
+
+  const promise = (async (): Promise<SpotifyPlaylistsApiResponse> => {
     try {
-      const res = await fetch("/api/spotify/playlists", { cache: "no-store" });
+      const res = await fetch("/api/spotify/playlists", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
       if (!res.ok) {
         return {
           connected: false,
           user: null,
-          playlists: [],
+          playlists: mergePlaylistsWithCustom([], false),
           curated: CURATED_FOCUS_PLAYLISTS,
         };
       }
       const data = await res.json();
+      const isConnected = Boolean(data.connected);
+      const apiPlaylists = Array.isArray(data.playlists) ? data.playlists : [];
+      const includeCustom = isConnected || getSavedCustomPlaylists().length > 0;
       const normalized: SpotifyPlaylistsApiResponse = {
-        connected: Boolean(data.connected),
+        connected: isConnected,
         user: data.user || null,
-        playlists: Array.isArray(data.playlists) ? data.playlists : [],
+        playlists: mergePlaylistsWithCustom(apiPlaylists, includeCustom),
         curated: Array.isArray(data.curated)
           ? data.curated
           : CURATED_FOCUS_PLAYLISTS,
+        error: typeof data.error === "string" ? data.error : null,
+        errorCode: typeof data.errorCode === "string" ? data.errorCode : null,
       };
-      cachedPlaylistsData = normalized;
-      cachedPlaylistsTimestamp = Date.now();
+      // Cache if cache wasn't invalidated while this request was in flight and there was no API error
+      if (requestVersion === playlistsCacheVersion && !normalized.errorCode) {
+        cachedPlaylistsData = normalized;
+        cachedPlaylistsTimestamp = Date.now();
+      }
       return normalized;
     } catch {
       return {
         connected: false,
         user: null,
-        playlists: [],
+        playlists: mergePlaylistsWithCustom([], false),
         curated: CURATED_FOCUS_PLAYLISTS,
       };
     } finally {
-      inFlightPlaylistsPromise = null;
+      if (requestVersion === playlistsCacheVersion) {
+        inFlightPlaylistsPromise = null;
+        inFlightPlaylistsStartedAt = 0;
+      }
     }
   })();
 
-  return inFlightPlaylistsPromise;
+  inFlightPlaylistsPromise = promise;
+  return promise;
 }
 
 /**
  * Broadcasts and dispatches a Spotify authentication state change across the current tab and other tabs.
  */
 export function notifySpotifyAuthChanged(connected: boolean, accountName?: string): void {
+  if (!connected) {
+    clearCustomPlaylists();
+  }
   invalidateSpotifyPlaylistsCache();
   if (typeof window === "undefined") return;
 
@@ -504,6 +777,7 @@ export function notifySpotifyAuthChanged(connected: boolean, accountName?: strin
         provider: "spotify",
         connected,
         accountName,
+        originId: STORE_ORIGIN_ID,
       });
       bc.close();
     }
@@ -519,7 +793,6 @@ export function subscribeToSpotifyAuthUpdates(
   if (typeof window === "undefined") return () => {};
 
   const handleAuthEvent = (e: Event) => {
-    invalidateSpotifyPlaylistsCache();
     const detail = (e as CustomEvent<{ connected?: boolean; accountName?: string }>).detail;
     callback(detail || {});
   };
@@ -529,7 +802,10 @@ export function subscribeToSpotifyAuthUpdates(
     try {
       bc = new BroadcastChannel("dnd-spotify-channel");
       bc.onmessage = (ev) => {
-        if (ev.data?.type === "SPOTIFY_AUTH_SYNC") {
+        if (
+          ev.data?.type === "SPOTIFY_AUTH_SYNC" &&
+          ev.data.originId !== STORE_ORIGIN_ID
+        ) {
           invalidateSpotifyPlaylistsCache();
           callback({
             connected: ev.data.connected,

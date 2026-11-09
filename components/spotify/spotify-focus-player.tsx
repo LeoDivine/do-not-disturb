@@ -13,16 +13,29 @@ import {
   saveStoredSpotifyPreferences,
   subscribeToSpotifyPreferences,
   parseSpotifyInputToUri,
+  importSpotifyPlaylistOrTrack,
   fetchSpotifyPlaylistsShared,
   subscribeToSpotifyAuthUpdates,
 } from "../../lib/spotify/spotify-store";
-import { setCurrentPlayingTrack, getCurrentPlayingTrack } from "../../lib/sound/current-track-store";
+import {
+  setCurrentPlayingTrack,
+  getCurrentPlayingTrack,
+  setSpotifyConnectState,
+} from "../../lib/sound/current-track-store";
 import { subscribeToSpotifyCommands, sendSpotifyCommand } from "../../lib/sound/audio-coordinator";
 
 declare global {
   interface Window {
     onSpotifyIframeApiReady?: (IFrameAPI: any) => void;
     SpotifyIframeApi?: any;
+    onSpotifyWebPlaybackSDKReady?: () => void;
+    Spotify?: {
+      Player: new (options: {
+        name: string;
+        getOAuthToken: (cb: (token: string) => void) => void;
+        volume?: number;
+      }) => any;
+    };
   }
 }
 
@@ -62,6 +75,19 @@ export default function SpotifyFocusPlayer({
   const isPlayerPausedRef = useRef<boolean>(true);
   const lastTrackUriRef = useRef<string | null>(null);
 
+  // Spotify Connect & Web Playback SDK refs for two-way sync with the user's Spotify app
+  const isAuthConnectedRef = useRef<boolean>(false);
+  const sdkPlayerRef = useRef<any>(null);
+  const sdkDeviceIdRef = useRef<string | null>(null);
+  const activeRemoteDeviceIdRef = useRef<string | null>(null);
+  const activeRemoteDeviceNameRef = useRef<string | null>(null);
+  const needsScopeUpgradeRef = useRef<boolean>(false);
+  const premiumRequiredRef = useRef<boolean>(false);
+  const devModeRestrictedRef = useRef<boolean>(false);
+  const dndOwnsPlaybackRef = useRef<boolean>(false);
+  const currentConnectTrackUriRef = useRef<string | null>(null);
+  const pollBackoffUntilRef = useRef<number>(0);
+
   // Subscribe to Spotify preference changes across tabs/pages
   useEffect(() => {
     const initial = getStoredSpotifyPreferences();
@@ -73,30 +99,439 @@ export default function SpotifyFocusPlayer({
     });
   }, []);
 
-  // Load connected status & user's Spotify playlists (skipped if embedOnly)
+  // Load connected status & user's Spotify playlists
   const fetchPlaylistsAndStatus = useCallback(async (forceRefresh = false) => {
-    if (embedOnly) return;
-    setIsLoadingPlaylists(true);
+    if (!embedOnly) {
+      setIsLoadingPlaylists(true);
+    }
     try {
       const data = await fetchSpotifyPlaylistsShared(forceRefresh);
-      setConnected(Boolean(data.connected));
-      setSpotifyUser(data.user || null);
-      setUserPlaylists(data.playlists);
+      const isConn = Boolean(data.connected);
+      isAuthConnectedRef.current = isConn;
+      setConnected(isConn);
+      if (!embedOnly) {
+        setSpotifyUser(data.user || null);
+        setUserPlaylists(data.playlists);
+      }
+      if (!isConn) {
+        if (sdkPlayerRef.current) {
+          try {
+            sdkPlayerRef.current.disconnect();
+          } catch {}
+          sdkPlayerRef.current = null;
+        }
+        sdkDeviceIdRef.current = null;
+        activeRemoteDeviceIdRef.current = null;
+        activeRemoteDeviceNameRef.current = null;
+        needsScopeUpgradeRef.current = false;
+        premiumRequiredRef.current = false;
+        devModeRestrictedRef.current = false;
+        dndOwnsPlaybackRef.current = false;
+        currentConnectTrackUriRef.current = null;
+        setSpotifyConnectState({
+          sdkReady: false,
+          sdkDeviceId: null,
+          activeDeviceId: null,
+          activeDeviceName: null,
+          activeDeviceType: null,
+          needsScopeUpgrade: false,
+          premiumRequired: false,
+          devModeRestricted: false,
+          dndOwnsPlayback: false,
+        });
+      }
     } catch {
       // Ignore network errors in local-only offline state
     } finally {
-      setIsLoadingPlaylists(false);
+      if (!embedOnly) {
+        setIsLoadingPlaylists(false);
+      }
     }
   }, [embedOnly]);
 
   useEffect(() => {
-    if (embedOnly) return;
-    fetchPlaylistsAndStatus(false);
+    const isActiveOAuthCallback =
+      typeof window !== "undefined" &&
+      window.location.pathname === "/callback" &&
+      window.location.search.includes("code=");
+    if (!isActiveOAuthCallback) {
+      fetchPlaylistsAndStatus(false);
+    }
 
     return subscribeToSpotifyAuthUpdates(() => {
+      needsScopeUpgradeRef.current = false;
+      devModeRestrictedRef.current = false;
       fetchPlaylistsAndStatus(true);
     });
-  }, [embedOnly, fetchPlaylistsAndStatus]);
+  }, [fetchPlaylistsAndStatus]);
+
+  // Sync current playback state from Spotify Connect (/api/spotify/player)
+  const syncRemoteSpotifyState = useCallback(async () => {
+    if (!isAuthConnectedRef.current) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      return;
+    }
+    if (Date.now() < pollBackoffUntilRef.current) {
+      return;
+    }
+    // Do not poll or hijack unrelated Spotify sessions when the user is in ambient-only mode
+    // unless DND initiated playback or the DND Web Playback SDK device is active.
+    if (
+      prefsRef.current.audioSource === "ambient" &&
+      !dndOwnsPlaybackRef.current &&
+      !sdkDeviceIdRef.current
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/spotify/player", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (!data.connected) {
+        isAuthConnectedRef.current = false;
+        return;
+      }
+
+      if (data.rateLimited) {
+        pollBackoffUntilRef.current =
+          Date.now() + (typeof data.retryAfterMs === "number" ? data.retryAfterMs : 15_000);
+        return;
+      }
+
+      if (data.errorCode === "insufficient_scope" || data.hasPlaybackControlScope === false) {
+        needsScopeUpgradeRef.current = true;
+        setSpotifyConnectState({
+          needsScopeUpgrade: true,
+          devModeRestricted: false,
+        });
+        return;
+      }
+
+      if (data.errorCode === "spotify_dev_mode_restricted") {
+        devModeRestrictedRef.current = true;
+        setSpotifyConnectState({
+          devModeRestricted: true,
+          needsScopeUpgrade: false,
+        });
+        return;
+      }
+
+      if (data.errorCode === "premium_required") {
+        premiumRequiredRef.current = true;
+        setSpotifyConnectState({ premiumRequired: true });
+        return;
+      }
+
+      if (data.device?.id) {
+        activeRemoteDeviceIdRef.current = data.device.id;
+        activeRemoteDeviceNameRef.current = data.device.name || "Spotify App";
+        if (sdkDeviceIdRef.current && data.device.id === sdkDeviceIdRef.current) {
+          dndOwnsPlaybackRef.current = true;
+        }
+        setSpotifyConnectState({
+          activeDeviceId: data.device.id,
+          activeDeviceName: data.device.name || "Spotify App",
+          activeDeviceType: data.device.type || null,
+          needsScopeUpgrade: false,
+          devModeRestricted: false,
+          dndOwnsPlayback: dndOwnsPlaybackRef.current,
+        });
+      } else {
+        activeRemoteDeviceIdRef.current = null;
+        activeRemoteDeviceNameRef.current = null;
+        setSpotifyConnectState({
+          activeDeviceId: null,
+          activeDeviceName: null,
+          activeDeviceType: null,
+        });
+        const existingTrack = getCurrentPlayingTrack();
+        if (existingTrack.spotifyConnectActive && existingTrack.isPlaying) {
+          isPlayerPausedRef.current = true;
+          setCurrentPlayingTrack({
+            ...existingTrack,
+            isPlaying: false,
+            spotifyConnectActive: false,
+          });
+        }
+      }
+
+      if (data.track?.uri) {
+        currentConnectTrackUriRef.current = data.track.uri;
+        const isPlayingRemote = Boolean(data.isPlaying);
+        const livePrefs = prefsRef.current;
+        const shouldSyncIntoDnd =
+          dndOwnsPlaybackRef.current ||
+          livePrefs.audioSource === "spotify" ||
+          livePrefs.audioSource === "both";
+
+        // Sync remote playback into DND UI & preferences when Spotify is the active DND audio source
+        // or when DND initiated the playback session.
+        if (shouldSyncIntoDnd && (isPlayingRemote || data.device?.isActive)) {
+          isPlayerPausedRef.current = !isPlayingRemote;
+
+          // Ensure fallback IFrame embed is paused if Spotify Connect is actively playing
+          if (
+            isPlayingRemote &&
+            controllerRef.current &&
+            typeof controllerRef.current.pause === "function"
+          ) {
+            try {
+              controllerRef.current.pause();
+            } catch {}
+          }
+
+          if (
+            data.track.uri.startsWith("spotify:track:") &&
+            livePrefs.lastPlayedTrackUri !== data.track.uri
+          ) {
+            lastTrackUriRef.current = data.track.uri;
+            prevLastPlayedTrackUriRef.current = data.track.uri;
+            saveStoredSpotifyPreferences({
+              lastPlayedTrackUri: data.track.uri,
+            });
+          }
+
+          setCurrentPlayingTrack({
+            title: data.track.title || "Spotify Track",
+            artist: data.track.artist || "Spotify",
+            artworkUrl: data.track.artworkUrl || livePrefs.selectedPlaylistImage,
+            source: "spotify",
+            isPlaying: isPlayingRemote,
+            uri: data.track.uri,
+            deviceName:
+              data.device?.name ||
+              activeRemoteDeviceNameRef.current ||
+              "Spotify App",
+            spotifyConnectActive: true,
+          });
+        }
+      }
+    } catch {
+      // Ignore transient network errors
+    }
+  }, []);
+
+  // Initialize Spotify Web Playback SDK (`window.Spotify.Player`) when connected
+  // so this website registers as a real Spotify Connect device ("Do Not Disturb Focus")
+  // visible inside the user's Spotify mobile/desktop app.
+  useEffect(() => {
+    if (typeof window === "undefined" || !connected) return;
+
+    let cancelled = false;
+
+    const setupWebPlaybackSdk = async () => {
+      try {
+        const tokenRes = await fetch("/api/spotify/player?token=1", {
+          cache: "no-store",
+        });
+        if (!tokenRes.ok || cancelled) return;
+        const tokenData = await tokenRes.json();
+        if (!tokenData.connected || cancelled) return;
+
+        if (
+          tokenData.errorCode === "premium_required" ||
+          tokenData.product === "free" ||
+          tokenData.product === "open"
+        ) {
+          premiumRequiredRef.current = true;
+          setSpotifyConnectState({ premiumRequired: true });
+          return;
+        }
+
+        if (
+          tokenData.errorCode === "insufficient_scope" ||
+          tokenData.hasPlaybackControlScope === false ||
+          tokenData.canStream === false ||
+          !tokenData.accessToken
+        ) {
+          needsScopeUpgradeRef.current = true;
+          setSpotifyConnectState({ needsScopeUpgrade: true });
+          return;
+        }
+
+        const createSdkPlayer = () => {
+          if (cancelled || sdkPlayerRef.current || !window.Spotify?.Player) return;
+
+          const player = new window.Spotify.Player({
+            name: "Do Not Disturb Focus",
+            getOAuthToken: async (cb: (token: string) => void) => {
+              try {
+                const r = await fetch("/api/spotify/player?token=1", {
+                  cache: "no-store",
+                });
+                if (r.ok) {
+                  const d = await r.json();
+                  if (d.accessToken) {
+                    cb(d.accessToken);
+                  }
+                }
+              } catch {}
+            },
+            volume: 0.85,
+          });
+
+          player.addListener("ready", ({ device_id }: { device_id: string }) => {
+            if (cancelled) return;
+            sdkDeviceIdRef.current = device_id;
+            setSpotifyConnectState({
+              sdkReady: true,
+              sdkDeviceId: device_id,
+              needsScopeUpgrade: false,
+              premiumRequired: false,
+            });
+            void syncRemoteSpotifyState();
+          });
+
+          player.addListener("not_ready", () => {
+            sdkDeviceIdRef.current = null;
+            setSpotifyConnectState({
+              sdkReady: false,
+              sdkDeviceId: null,
+            });
+          });
+
+          player.addListener("initialization_error", () => {
+            sdkDeviceIdRef.current = null;
+            setSpotifyConnectState({
+              sdkReady: false,
+              sdkDeviceId: null,
+            });
+          });
+
+          player.addListener("authentication_error", () => {
+            needsScopeUpgradeRef.current = true;
+            setSpotifyConnectState({ needsScopeUpgrade: true });
+          });
+
+          player.addListener("account_error", () => {
+            premiumRequiredRef.current = true;
+            sdkDeviceIdRef.current = null;
+            setSpotifyConnectState({
+              sdkReady: false,
+              sdkDeviceId: null,
+              premiumRequired: true,
+            });
+          });
+
+          player.addListener("player_state_changed", (state: any) => {
+            if (!state) return;
+            const currentTrack = state.track_window?.current_track;
+            if (!currentTrack) return;
+
+            const isPaused = Boolean(state.paused);
+            const playingUri = currentTrack.uri as string;
+            const title = currentTrack.name || "Spotify Track";
+            const artist = Array.isArray(currentTrack.artists)
+              ? currentTrack.artists
+                  .map((a: any) => a?.name)
+                  .filter(Boolean)
+                  .join(", ")
+              : "Spotify";
+            const artworkUrl =
+              currentTrack.album?.images?.[0]?.url ||
+              prefsRef.current.selectedPlaylistImage ||
+              null;
+
+            isPlayerPausedRef.current = isPaused;
+            dndOwnsPlaybackRef.current = true;
+            if (playingUri) {
+              currentConnectTrackUriRef.current = playingUri;
+            }
+
+            if (sdkDeviceIdRef.current) {
+              activeRemoteDeviceIdRef.current = sdkDeviceIdRef.current;
+              activeRemoteDeviceNameRef.current = "Do Not Disturb Focus";
+              setSpotifyConnectState({
+                activeDeviceId: sdkDeviceIdRef.current,
+                activeDeviceName: "Do Not Disturb Focus",
+                activeDeviceType: "Computer",
+                dndOwnsPlayback: true,
+              });
+            }
+
+            // Pause fallback IFrame embed if Web Playback SDK is actively playing
+            if (
+              !isPaused &&
+              controllerRef.current &&
+              typeof controllerRef.current.pause === "function"
+            ) {
+              try {
+                controllerRef.current.pause();
+              } catch {}
+            }
+
+            if (
+              playingUri &&
+              playingUri.startsWith("spotify:track:") &&
+              prefsRef.current.lastPlayedTrackUri !== playingUri
+            ) {
+              lastTrackUriRef.current = playingUri;
+              prevLastPlayedTrackUriRef.current = playingUri;
+              saveStoredSpotifyPreferences({
+                lastPlayedTrackUri: playingUri,
+                ...(!isPaused && prefsRef.current.audioSource === "ambient"
+                  ? { audioSource: "spotify" }
+                  : {}),
+              });
+            }
+
+            setCurrentPlayingTrack({
+              title,
+              artist,
+              artworkUrl,
+              source: "spotify",
+              isPlaying: !isPaused,
+              uri: playingUri,
+              deviceName: "Do Not Disturb Focus",
+              spotifyConnectActive: true,
+            });
+          });
+
+          player.connect();
+          sdkPlayerRef.current = player;
+        };
+
+        if (window.Spotify?.Player) {
+          createSdkPlayer();
+        } else {
+          const prevReady = window.onSpotifyWebPlaybackSDKReady;
+          window.onSpotifyWebPlaybackSDKReady = () => {
+            if (prevReady) prevReady();
+            createSdkPlayer();
+          };
+          if (!document.getElementById("spotify-web-playback-sdk-script")) {
+            const script = document.createElement("script");
+            script.id = "spotify-web-playback-sdk-script";
+            script.src = "https://sdk.scdn.co/spotify-player.js";
+            script.async = true;
+            document.body.appendChild(script);
+          }
+        }
+      } catch {
+        // Fallback to IFrame embed if Web Playback SDK cannot be initialized
+      }
+    };
+
+    void setupWebPlaybackSdk();
+    void syncRemoteSpotifyState();
+
+    const pollInterval = window.setInterval(() => {
+      void syncRemoteSpotifyState();
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollInterval);
+      if (sdkPlayerRef.current) {
+        try {
+          sdkPlayerRef.current.disconnect();
+        } catch {}
+        sdkPlayerRef.current = null;
+      }
+    };
+  }, [connected, syncRemoteSpotifyState]);
 
   // Load Spotify Official IFrame API script and initialize EmbedController
   useEffect(() => {
@@ -290,6 +725,28 @@ export default function SpotifyFocusPlayer({
           EmbedController.addListener("playback_update", (e: any) => {
             const isPaused = Boolean(e?.data?.isPaused);
             const playingUri = (e?.data?.playingURI as string) || "";
+
+            // When Spotify Connect is actively playing, calling controllerRef.current.pause()
+            // triggers an IFrame `playback_update` with `isPaused: true` and the IFrame's old URI.
+            // Ignore that synthetic pause update so it never overwrites Spotify Connect's active song!
+            const currentGlobalTrack = getCurrentPlayingTrack();
+            if (
+              isPaused &&
+              currentGlobalTrack.spotifyConnectActive &&
+              currentGlobalTrack.isPlaying &&
+              (sdkDeviceIdRef.current || activeRemoteDeviceIdRef.current)
+            ) {
+              return;
+            }
+
+            // If the user explicitly pressed Play inside the IFrame Embed, pause Web Playback SDK
+            // so the two audio engines never play simultaneously.
+            if (!isPaused && sdkPlayerRef.current && typeof sdkPlayerRef.current.pause === "function") {
+              try {
+                sdkPlayerRef.current.pause();
+              } catch {}
+            }
+
             isPlayerPausedRef.current = isPaused;
 
             const livePrefs = prefsRef.current;
@@ -303,6 +760,7 @@ export default function SpotifyFocusPlayer({
               livePrefs.lastPlayedTrackUri !== playingUri
             ) {
               lastTrackUriRef.current = playingUri;
+              prevLastPlayedTrackUriRef.current = playingUri;
               prefUpdates.lastPlayedTrackUri = playingUri;
             }
             if (Object.keys(prefUpdates).length > 0) {
@@ -336,14 +794,22 @@ export default function SpotifyFocusPlayer({
     }
   }, [compact, isDark]);
 
-  // Update embedded playlist or selected track URI when preferences change
+  // Update embedded playlist or selected track URI when preferences change (only when Spotify Connect is not active)
   const prevSelectedPlaylistUriRef = useRef<string>(prefs.selectedPlaylistUri);
   const prevLastPlayedTrackUriRef = useRef<string | null | undefined>(prefs.lastPlayedTrackUri);
 
   useEffect(() => {
     if (prevSelectedPlaylistUriRef.current !== prefs.selectedPlaylistUri) {
       prevSelectedPlaylistUriRef.current = prefs.selectedPlaylistUri;
-      if (controllerRef.current && isEmbedReady && prefs.selectedPlaylistUri) {
+      const isConnectActive = Boolean(
+        sdkDeviceIdRef.current || activeRemoteDeviceIdRef.current
+      );
+      if (
+        !isConnectActive &&
+        controllerRef.current &&
+        isEmbedReady &&
+        prefs.selectedPlaylistUri
+      ) {
         try {
           const targetUri = prefs.lastPlayedTrackUri || prefs.selectedPlaylistUri;
           if (currentLoadedUriRef.current !== targetUri) {
@@ -356,14 +822,17 @@ export default function SpotifyFocusPlayer({
     }
   }, [prefs.selectedPlaylistUri, prefs.lastPlayedTrackUri, isEmbedReady]);
 
-  // Synchronize when a specific track is selected (e.g. from widget or mini pop-up view)
+  // Synchronize when a specific track is selected (only when Spotify Connect is not active)
   useEffect(() => {
     if (
       prefs.lastPlayedTrackUri &&
       prevLastPlayedTrackUriRef.current !== prefs.lastPlayedTrackUri
     ) {
       prevLastPlayedTrackUriRef.current = prefs.lastPlayedTrackUri;
-      if (controllerRef.current && isEmbedReady) {
+      const isConnectActive = Boolean(
+        sdkDeviceIdRef.current || activeRemoteDeviceIdRef.current
+      );
+      if (!isConnectActive && controllerRef.current && isEmbedReady) {
         try {
           if (currentLoadedUriRef.current !== prefs.lastPlayedTrackUri) {
             controllerRef.current.loadUri(prefs.lastPlayedTrackUri);
@@ -374,7 +843,12 @@ export default function SpotifyFocusPlayer({
     }
   }, [prefs.lastPlayedTrackUri, isEmbedReady]);
 
-  const resumeOrPlayTrack = useCallback((explicitUri?: string) => {
+  const resumeOrPlayEmbedFallback = useCallback((explicitUri?: string) => {
+    if (sdkPlayerRef.current && typeof sdkPlayerRef.current.pause === "function") {
+      try {
+        sdkPlayerRef.current.pause();
+      } catch {}
+    }
     if (!controllerRef.current) return;
     try {
       const freshPrefs = getStoredSpotifyPreferences();
@@ -408,13 +882,140 @@ export default function SpotifyFocusPlayer({
     }
   }, []);
 
-  // Handle external playback commands (from timer start/pause, mini pop-up window, global shortcuts, etc.)
+  // Handle external playback commands (from widget, timer start/pause, mini pop-up window, etc.)
+  // Routes through Spotify Connect (/api/spotify/player) first when connected so the user's
+  // Spotify desktop/mobile app stays synchronized in real time, and falls back to the IFrame Embed.
   useEffect(() => {
-    return subscribeToSpotifyCommands((command, uri) => {
+    return subscribeToSpotifyCommands(async (command, uri, contextUri) => {
+      const freshPrefs = getStoredSpotifyPreferences();
+      const targetUri =
+        uri || freshPrefs.lastPlayedTrackUri || freshPrefs.selectedPlaylistUri;
+
+      // Never pause the user's remote Spotify app if DND did not initiate or own playback
+      if (
+        command === "pause" &&
+        !dndOwnsPlaybackRef.current &&
+        (!sdkDeviceIdRef.current ||
+          activeRemoteDeviceIdRef.current !== sdkDeviceIdRef.current)
+      ) {
+        if (
+          controllerRef.current &&
+          typeof controllerRef.current.pause === "function"
+        ) {
+          try {
+            controllerRef.current.pause();
+            isPlayerPausedRef.current = true;
+          } catch {}
+        }
+        return;
+      }
+
+      if (command !== "pause") {
+        dndOwnsPlaybackRef.current = true;
+        setSpotifyConnectState({ dndOwnsPlayback: true });
+      }
+
+      if (
+        isAuthConnectedRef.current &&
+        !needsScopeUpgradeRef.current &&
+        !premiumRequiredRef.current &&
+        !devModeRestrictedRef.current
+      ) {
+        try {
+          const hasActiveConnectDevice = Boolean(
+            activeRemoteDeviceIdRef.current || sdkDeviceIdRef.current
+          );
+          const isResumingSameConnectTrack =
+            command === "play" &&
+            isPlayerPausedRef.current &&
+            hasActiveConnectDevice &&
+            Boolean(
+              currentConnectTrackUriRef.current &&
+                targetUri === currentConnectTrackUriRef.current
+            );
+
+          const resolvedAction =
+            command === "toggle"
+              ? isPlayerPausedRef.current
+                ? "resume"
+                : "pause"
+              : isResumingSameConnectTrack
+              ? "resume"
+              : command;
+
+          const targetDeviceId =
+            activeRemoteDeviceIdRef.current || sdkDeviceIdRef.current || undefined;
+
+          const res = await fetch("/api/spotify/player", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: resolvedAction,
+              uri:
+                resolvedAction === "play"
+                  ? targetUri
+                  : resolvedAction === "resume" && !activeRemoteDeviceIdRef.current
+                  ? targetUri
+                  : undefined,
+              contextUri:
+                resolvedAction === "play" && contextUri ? contextUri : undefined,
+              deviceId: targetDeviceId,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.rateLimited) {
+              pollBackoffUntilRef.current =
+                Date.now() +
+                (typeof data.retryAfterMs === "number" ? data.retryAfterMs : 15_000);
+            } else if (data.errorCode === "insufficient_scope") {
+              needsScopeUpgradeRef.current = true;
+              setSpotifyConnectState({
+                needsScopeUpgrade: true,
+                devModeRestricted: false,
+              });
+            } else if (data.errorCode === "spotify_dev_mode_restricted") {
+              devModeRestrictedRef.current = true;
+              setSpotifyConnectState({
+                devModeRestricted: true,
+                needsScopeUpgrade: false,
+              });
+            } else if (data.errorCode === "premium_required") {
+              premiumRequiredRef.current = true;
+              setSpotifyConnectState({ premiumRequired: true });
+            } else if (data.ok) {
+              if (resolvedAction === "pause") {
+                isPlayerPausedRef.current = true;
+              } else if (resolvedAction === "play" || resolvedAction === "resume") {
+                isPlayerPausedRef.current = false;
+                if (targetUri && targetUri.startsWith("spotify:track:")) {
+                  currentConnectTrackUriRef.current = targetUri;
+                }
+              }
+              if (
+                controllerRef.current &&
+                typeof controllerRef.current.pause === "function"
+              ) {
+                try {
+                  controllerRef.current.pause();
+                } catch {}
+              }
+              window.setTimeout(() => {
+                void syncRemoteSpotifyState();
+              }, 550);
+              return;
+            }
+          }
+        } catch {
+          // Fall back to IFrame controller below
+        }
+      }
+
       if (!controllerRef.current) return;
       try {
         if (command === "play" || command === "resume") {
-          resumeOrPlayTrack(uri);
+          resumeOrPlayEmbedFallback(uri);
         } else if (command === "pause") {
           controllerRef.current.pause();
           isPlayerPausedRef.current = true;
@@ -429,7 +1030,7 @@ export default function SpotifyFocusPlayer({
         console.warn("Spotify command execution failed", err);
       }
     });
-  }, [resumeOrPlayTrack]);
+  }, [resumeOrPlayEmbedFallback, syncRemoteSpotifyState]);
 
   const handleSelectPlaylist = (item: SpotifyPlaylistItem) => {
     saveStoredSpotifyPreferences({
@@ -444,7 +1045,7 @@ export default function SpotifyFocusPlayer({
     setIsPickerOpen(false);
   };
 
-  const handleApplyCustomUrl = (e: React.FormEvent) => {
+  const handleApplyCustomUrl = async (e: React.FormEvent) => {
     e.preventDefault();
     setCustomUrlError("");
     const parsed = parseSpotifyInputToUri(customUrlInput);
@@ -452,23 +1053,20 @@ export default function SpotifyFocusPlayer({
       setCustomUrlError("Please paste a valid Spotify playlist or track link.");
       return;
     }
-    if (parsed.type === "track") {
-      saveStoredSpotifyPreferences({
-        lastPlayedTrackUri: parsed.uri,
-        audioSource: prefsRef.current.audioSource === "both" ? "both" : "spotify",
-      });
-    } else {
-      saveStoredSpotifyPreferences({
-        selectedPlaylistUri: parsed.uri,
-        selectedPlaylistName: `Custom ${parsed.type.charAt(0).toUpperCase() + parsed.type.slice(1)}`,
-        selectedPlaylistImage: null,
-        selectedPlaylistOwner: "Custom Link",
-        audioSource: prefsRef.current.audioSource === "both" ? "both" : "spotify",
-        lastPlayedTrackUri: null,
-      });
-    }
-    sendSpotifyCommand("play", parsed.uri);
+    const raw = customUrlInput;
     setCustomUrlInput("");
+    const imported = await importSpotifyPlaylistOrTrack(raw);
+    if (!imported) return;
+    if (imported.playlist) {
+      const pl = imported.playlist;
+      setUserPlaylists((prev) => [
+        pl,
+        ...prev.filter((item) => item.uri !== pl.uri && item.id !== pl.id),
+      ]);
+      sendSpotifyCommand("play", pl.uri);
+    } else {
+      sendSpotifyCommand("play", imported.uri);
+    }
     setIsPickerOpen(false);
   };
 

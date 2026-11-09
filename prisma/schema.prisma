@@ -82,8 +82,9 @@ model UserSettings {
   autoStartFocus  Boolean @default(false)
 
   // Website blocking policies
-  strictBlocking    BlockingBehavior @default(STRICT)
-  blockDuringBreaks Boolean          @default(false)
+  strictBlocking          BlockingBehavior @default(STRICT)
+  blockDuringBreaks       Boolean          @default(false)
+  lockSettingsDuringFocus Boolean          @default(false)
 
   // Audio and Ambience
   acousticPreset   String  @default("rain") // "rain", "binaural", "space", "waves", "forest"

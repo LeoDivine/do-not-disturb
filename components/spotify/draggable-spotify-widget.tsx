@@ -10,6 +10,9 @@ import {
   subscribeToCurrentPlayingTrack,
   setCurrentPlayingTrack,
   ActiveTrackInfo,
+  getSpotifyConnectState,
+  subscribeToSpotifyConnectState,
+  SpotifyConnectState,
 } from "../../lib/sound/current-track-store";
 import {
   getStoredSpotifyPreferences,
@@ -21,6 +24,7 @@ import {
   SpotifyTrackItem,
   SpotifyPlaylistItem,
   parseSpotifyInputToUri,
+  importSpotifyPlaylistOrTrack,
   fetchSpotifyPlaylistsShared,
   subscribeToSpotifyAuthUpdates,
 } from "../../lib/spotify/spotify-store";
@@ -47,6 +51,10 @@ export default function DraggableSpotifyWidget() {
   } | null>(null);
   const [userPlaylists, setUserPlaylists] = useState<SpotifyPlaylistItem[]>([]);
   const [isLoadingPlaylists, setIsLoadingPlaylists] = useState<boolean>(false);
+  const [playlistError, setPlaylistError] = useState<string | null>(null);
+  const [playlistErrorCode, setPlaylistErrorCode] = useState<string | null>(null);
+  const fetchSeqRef = useRef<number>(0);
+  const hasAutoSwitchedToPlaylistsRef = useRef<boolean>(false);
 
   // Active playlist drill-down for selecting individual tracks from a playlist
   const [selectedPlaylistInfo, setSelectedPlaylistInfo] = useState<{
@@ -61,6 +69,9 @@ export default function DraggableSpotifyWidget() {
 
   const [currentTrack, setCurrentTrack] = useState<ActiveTrackInfo>(() =>
     getCurrentPlayingTrack()
+  );
+  const [connectState, setConnectState] = useState<SpotifyConnectState>(() =>
+    getSpotifyConnectState()
   );
   const [prefs, setPrefs] = useState<SpotifyStoredPreference>(() =>
     getStoredSpotifyPreferences()
@@ -78,16 +89,30 @@ export default function DraggableSpotifyWidget() {
 
   // Fetch connected status & user's personal playlists (shared cache across components)
   const fetchPlaylists = useCallback(async (forceRefresh = false) => {
+    const seq = ++fetchSeqRef.current;
     setIsLoadingPlaylists(true);
     try {
       const data = await fetchSpotifyPlaylistsShared(forceRefresh);
+      if (seq !== fetchSeqRef.current) return;
       setConnected(Boolean(data.connected));
       setSpotifyUser(data.user || null);
       setUserPlaylists(data.playlists);
+      setPlaylistError(data.error || null);
+      setPlaylistErrorCode(data.errorCode || null);
+
+      if (
+        (data.connected || data.playlists.length > 0) &&
+        !hasAutoSwitchedToPlaylistsRef.current
+      ) {
+        hasAutoSwitchedToPlaylistsRef.current = true;
+        setViewMode("playlists");
+      }
     } catch {
       // offline / local fallback
     } finally {
-      setIsLoadingPlaylists(false);
+      if (seq === fetchSeqRef.current) {
+        setIsLoadingPlaylists(false);
+      }
     }
   }, []);
 
@@ -119,9 +144,16 @@ export default function DraggableSpotifyWidget() {
     setPos({ x: initX, y: initY });
 
     const unsubTrack = subscribeToCurrentPlayingTrack((t) => setCurrentTrack(t));
+    const unsubConnect = subscribeToSpotifyConnectState((s) => setConnectState(s));
     const unsubPrefs = subscribeToSpotifyPreferences((p) => setPrefs(p));
 
-    const handleOpenRequest = () => setIsOpen(true);
+    const handleOpenRequest = (e: Event) => {
+      const detail = (e as CustomEvent<{ viewMode?: "tracks" | "playlists" }>).detail;
+      if (detail?.viewMode) {
+        setViewMode(detail.viewMode);
+      }
+      setIsOpen(true);
+    };
     window.addEventListener(OPEN_SPOTIFY_WIDGET_EVENT, handleOpenRequest);
 
     const handleResize = () => {
@@ -132,15 +164,24 @@ export default function DraggableSpotifyWidget() {
     };
     window.addEventListener("resize", handleResize);
 
-    // Initial playlist fetch
-    fetchPlaylists(false);
+    // Avoid firing an unauthenticated request during the active OAuth callback code exchange
+    const isActiveOAuthCallback =
+      window.location.pathname === "/callback" &&
+      window.location.search.includes("code=");
+    if (!isActiveOAuthCallback) {
+      fetchPlaylists(false);
+    }
 
-    const unsubAuth = subscribeToSpotifyAuthUpdates(() => {
+    const unsubAuth = subscribeToSpotifyAuthUpdates((payload) => {
+      if (payload.connected) {
+        setViewMode("playlists");
+      }
       fetchPlaylists(true);
     });
 
     return () => {
       unsubTrack();
+      unsubConnect();
       unsubPrefs();
       unsubAuth();
       window.removeEventListener(OPEN_SPOTIFY_WIDGET_EVENT, handleOpenRequest);
@@ -225,28 +266,36 @@ export default function DraggableSpotifyWidget() {
   }, [isOpen]);
 
   // Select an individual track without overwriting stored playlist metadata
-  const handleSelectTrack = useCallback((track: SpotifyTrackItem) => {
-    const currentPrefs = getStoredSpotifyPreferences();
-    const nextAudioSource = currentPrefs.audioSource === "both" ? "both" : "spotify";
-    if (nextAudioSource === "spotify") {
-      try {
-        getSoundSynth().stop();
-      } catch {}
-    }
-    saveStoredSpotifyPreferences({
-      lastPlayedTrackUri: track.uri,
-      audioSource: nextAudioSource,
-    });
-    sendSpotifyCommand("play", track.uri);
-    setCurrentPlayingTrack({
-      title: track.title,
-      artist: track.artist,
-      source: "spotify",
-      isPlaying: true,
-      uri: track.uri,
-      artworkUrl: track.imageUrl || currentPrefs.selectedPlaylistImage,
-    });
-  }, []);
+  const handleSelectTrack = useCallback(
+    (track: SpotifyTrackItem) => {
+      const currentPrefs = getStoredSpotifyPreferences();
+      const nextAudioSource =
+        currentPrefs.audioSource === "both" ? "both" : "spotify";
+      if (nextAudioSource === "spotify") {
+        try {
+          getSoundSynth().stop();
+        } catch {}
+      }
+      saveStoredSpotifyPreferences({
+        lastPlayedTrackUri: track.uri,
+        audioSource: nextAudioSource,
+      });
+      // Only attach a playlist contextUri when the track was selected from an open playlist's track list
+      const playlistContextUri = selectedPlaylistInfo?.id
+        ? `spotify:playlist:${selectedPlaylistInfo.id}`
+        : null;
+      sendSpotifyCommand("play", track.uri, { contextUri: playlistContextUri });
+      setCurrentPlayingTrack({
+        title: track.title,
+        artist: track.artist,
+        source: "spotify",
+        isPlaying: true,
+        uri: track.uri,
+        artworkUrl: track.imageUrl || currentPrefs.selectedPlaylistImage,
+      });
+    },
+    [selectedPlaylistInfo]
+  );
 
   // Load tracks for a playlist by ID (with in-memory caching for instant tab switching)
   const loadTracksForPlaylist = useCallback(
@@ -377,12 +426,14 @@ export default function DraggableSpotifyWidget() {
   ]);
 
   // Handle custom search / link input
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
+    const rawQuery = searchQuery.trim();
+    if (!rawQuery) return;
 
-    const parsed = parseSpotifyInputToUri(searchQuery);
+    const parsed = parseSpotifyInputToUri(rawQuery);
     if (parsed) {
+      setSearchQuery("");
       const currentPrefs = getStoredSpotifyPreferences();
       const nextAudioSource = currentPrefs.audioSource === "both" ? "both" : "spotify";
       if (nextAudioSource === "spotify") {
@@ -390,21 +441,37 @@ export default function DraggableSpotifyWidget() {
           getSoundSynth().stop();
         } catch {}
       }
-      if (parsed.type === "track") {
-        saveStoredSpotifyPreferences({
-          lastPlayedTrackUri: parsed.uri,
-          audioSource: nextAudioSource,
-        });
-      } else {
-        saveStoredSpotifyPreferences({
-          selectedPlaylistUri: parsed.uri,
-          selectedPlaylistName: `Custom ${parsed.type}`,
-          audioSource: nextAudioSource,
-          lastPlayedTrackUri: null,
+
+      const imported = await importSpotifyPlaylistOrTrack(rawQuery);
+      if (!imported) return;
+
+      if (imported.type === "track") {
+        sendSpotifyCommand("play", imported.uri);
+        return;
+      }
+
+      if (imported.playlist) {
+        const pl = imported.playlist;
+        lastSyncedPlaylistUriRef.current = pl.uri;
+        setUserPlaylists((prev) => [
+          pl,
+          ...prev.filter((item) => item.uri !== pl.uri && item.id !== pl.id),
+        ]);
+        if (imported.tracks.length > 0) {
+          tracksCacheRef.current.set(pl.id, imported.tracks);
+          setSelectedPlaylistInfo({ id: pl.id, name: pl.name });
+          setPlaylistTracks(imported.tracks);
+        }
+        sendSpotifyCommand("play", pl.uri);
+        setCurrentPlayingTrack({
+          title: pl.name,
+          artist: pl.ownerName,
+          source: "spotify",
+          isPlaying: true,
+          uri: pl.uri,
+          artworkUrl: pl.imageUrl,
         });
       }
-      sendSpotifyCommand("play", parsed.uri);
-      setSearchQuery("");
       return;
     }
   };
@@ -455,22 +522,50 @@ export default function DraggableSpotifyWidget() {
   const isPlayingSpotify =
     Boolean(currentTrack.isPlaying) && currentTrack.source === "spotify";
 
-  // Position popover cleanly within viewport
-  const popoverWidth = 290;
-  const popoverHeight = 440;
-  const isRightSide = pos.x > window.innerWidth / 2;
-  const isBottomSide = pos.y > window.innerHeight / 2;
+  // Position popover cleanly within viewport with increased height and comfortable width
+  const popoverWidth = Math.min(
+    330,
+    typeof window !== "undefined" ? window.innerWidth - 24 : 330
+  );
+  const popoverHeight = Math.min(
+    540,
+    typeof window !== "undefined" ? window.innerHeight - 32 : 540
+  );
+  const isRightSide =
+    pos.x > (typeof window !== "undefined" ? window.innerWidth / 2 : 500);
+  const isBottomSide =
+    pos.y > (typeof window !== "undefined" ? window.innerHeight / 2 : 500);
 
   const popoverLeft = isRightSide
-    ? Math.max(10, pos.x - popoverWidth + 44)
-    : Math.min(pos.x, window.innerWidth - popoverWidth - 10);
+    ? Math.max(12, pos.x - popoverWidth + 44)
+    : Math.min(
+        pos.x,
+        (typeof window !== "undefined" ? window.innerWidth : 1000) -
+          popoverWidth -
+          12
+      );
 
   const popoverTop = isBottomSide
-    ? Math.max(10, pos.y - popoverHeight - 8)
-    : Math.min(pos.y + 52, window.innerHeight - popoverHeight - 10);
+    ? Math.max(12, pos.y - popoverHeight - 8)
+    : Math.min(
+        pos.y + 52,
+        (typeof window !== "undefined" ? window.innerHeight : 800) -
+          popoverHeight -
+          12
+      );
 
   return (
     <>
+      {/* Equalizer CSS animations */}
+      <style>{`
+        @keyframes dnd-eq-1 { 0%, 100% { height: 4px; } 50% { height: 11px; } }
+        @keyframes dnd-eq-2 { 0%, 100% { height: 12px; } 50% { height: 5px; } }
+        @keyframes dnd-eq-3 { 0%, 100% { height: 5px; } 50% { height: 13px; } }
+        .animate-eq-1 { animation: dnd-eq-1 0.7s ease-in-out infinite alternate; }
+        .animate-eq-2 { animation: dnd-eq-2 0.5s ease-in-out infinite alternate; }
+        .animate-eq-3 { animation: dnd-eq-3 0.9s ease-in-out infinite alternate; }
+      `}</style>
+
       {/* Sticky Draggable Floating Spotify Icon (Sleek 44px) */}
       <div
         style={{
@@ -490,7 +585,7 @@ export default function DraggableSpotifyWidget() {
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
           aria-label="Focus Music player"
-          title="Focus Music (Click to pick music, or drag to move)"
+          title="Focus Music (Click to open music, drag to move)"
           className={`relative group w-11 h-11 rounded-full flex items-center justify-center transition-all cursor-grab active:cursor-grabbing focus:outline-none ${
             isDragging
               ? "scale-105 shadow-xl opacity-90"
@@ -528,7 +623,7 @@ export default function DraggableSpotifyWidget() {
         </button>
       </div>
 
-      {/* Minimalist Popover Controller (290px Compact Footprint) */}
+      {/* Minimalist Popover Controller */}
       <div
         ref={popoverRef}
         style={{
@@ -537,10 +632,11 @@ export default function DraggableSpotifyWidget() {
           top: `${popoverTop}px`,
           width: `${popoverWidth}px`,
           maxHeight: `${popoverHeight}px`,
+          height: `${popoverHeight}px`,
           zIndex: 50,
           visibility: isOpen ? "visible" : "hidden",
         }}
-        className={`flex flex-col rounded-2xl border shadow-xl transition-all duration-200 backdrop-blur-md overflow-hidden ${
+        className={`flex flex-col rounded-2xl border shadow-2xl transition-all duration-200 backdrop-blur-xl overflow-hidden ${
           isOpen
             ? "opacity-100 scale-100 pointer-events-auto"
             : "opacity-0 scale-95 pointer-events-none"
@@ -550,128 +646,221 @@ export default function DraggableSpotifyWidget() {
             : "bg-white/95 border-[#e2e8f0] text-[#0f172a]"
         }`}
       >
-        {/* Minimalist Header */}
-        <div className="flex items-center justify-between px-3 py-2.5 border-b border-inherit">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isPlayingSpotify ? "bg-[#1DB954] animate-pulse" : "bg-[#64748b]"
-              }`}
-            />
-            <span className="text-[11px] font-bold tracking-tight">Focus Music</span>
-            <span className="text-[10px] text-[#64748b] dark:text-[#7e8c9f] truncate">
-              · {isPlayingSpotify ? "Playing now" : "Ready to play"}
-            </span>
+        {/* Minimalist Top Bar */}
+        <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-inherit shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-5 h-5 rounded-full bg-[#1DB954] flex items-center justify-center shrink-0">
+              <svg className="w-3 h-3 text-black fill-current" viewBox="0 0 24 24">
+                <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+              </svg>
+            </div>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-xs font-semibold tracking-tight">Focus Music</span>
+              <span className="text-[11px] text-[#64748b] dark:text-[#7e8c9f]">·</span>
+              <span className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate">
+                {isPlayingSpotify ? "Playing" : "Ready"}
+              </span>
+            </div>
           </div>
 
           <button
             type="button"
             onClick={() => setIsOpen(false)}
-            className="w-5 h-5 rounded flex items-center justify-center text-[11px] text-[#64748b] hover:text-[#0f172a] dark:text-[#7e8c9f] dark:hover:text-[#f1f5f9] transition-colors cursor-pointer"
+            className="w-6 h-6 rounded-lg flex items-center justify-center text-xs text-[#64748b] hover:text-[#0f172a] dark:text-[#7e8c9f] dark:hover:text-[#f1f5f9] hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
             aria-label="Close music player"
           >
             ✕
           </button>
         </div>
 
-        {/* Compact Now-Playing & Playback Controls Bar */}
-        <div className="p-2.5 border-b border-inherit bg-black/[0.02] dark:bg-white/[0.02] flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#1c2432] shrink-0 border border-white/10 flex items-center justify-center">
-              {currentTrack.artworkUrl || prefs.selectedPlaylistImage ? (
-                <img
-                  src={currentTrack.artworkUrl || prefs.selectedPlaylistImage || ""}
-                  alt={currentTrack.title}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-[#1DB954] text-xs font-bold">♪</span>
-              )}
+        {/* Compact Now-Playing Card & Transport Controls */}
+        <div className="p-3 border-b border-inherit bg-black/[0.02] dark:bg-white/[0.02] shrink-0">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#1c2432] shrink-0 border border-black/10 dark:border-white/10 flex items-center justify-center shadow-xs">
+                {currentTrack.artworkUrl || prefs.selectedPlaylistImage ? (
+                  <img
+                    src={currentTrack.artworkUrl || prefs.selectedPlaylistImage || ""}
+                    alt={currentTrack.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-[#1DB954] text-sm font-bold">♫</span>
+                )}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold truncate leading-tight">
+                  {currentTrack.title || prefs.selectedPlaylistName || "Deep Focus"}
+                </div>
+                <div className="text-[11px] text-[#64748b] dark:text-[#7e8c9f] truncate leading-tight mt-0.5">
+                  {currentTrack.artist || "Spotify"}
+                </div>
+              </div>
             </div>
 
-            <div className="min-w-0 flex-1">
-              <div className="text-[11.5px] font-semibold truncate leading-tight">
-                {currentTrack.title || prefs.selectedPlaylistName || "Deep Focus"}
-              </div>
-              <div className="text-[10px] text-[#64748b] dark:text-[#7e8c9f] truncate leading-tight mt-0.5">
-                {currentTrack.artist || "Spotify"}
-              </div>
+            {/* Inline Transport Controls */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => sendSpotifyCommand("prev")}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-[#64748b] dark:text-[#7e8c9f] hover:text-current hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                title="Previous track"
+              >
+                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                  <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => sendSpotifyCommand("toggle")}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-black font-bold transition-transform hover:scale-105 active:scale-95 cursor-pointer shadow-xs"
+                style={{ backgroundColor: "#1DB954" }}
+                title={isPlayingSpotify ? "Pause music" : "Play music"}
+              >
+                {isPlayingSpotify ? (
+                  <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5 fill-current translate-x-0.5" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => sendSpotifyCommand("next")}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-[#64748b] dark:text-[#7e8c9f] hover:text-current hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                title="Next track"
+              >
+                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                  <path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                </svg>
+              </button>
             </div>
-          </div>
-
-          {/* Inline Controls */}
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => sendSpotifyCommand("prev")}
-              className="w-6 h-6 rounded flex items-center justify-center text-[#64748b] dark:text-[#7e8c9f] hover:text-current transition-colors cursor-pointer"
-              title="Previous song"
-            >
-              <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
-                <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
-              </svg>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => sendSpotifyCommand("toggle")}
-              className="w-7 h-7 rounded-full flex items-center justify-center text-black font-bold transition-transform hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
-              style={{ backgroundColor: "#1DB954" }}
-              title={isPlayingSpotify ? "Pause music" : "Play music"}
-            >
-              {isPlayingSpotify ? (
-                <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
-                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                </svg>
-              ) : (
-                <svg className="w-3 h-3 fill-current translate-x-0.5" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => sendSpotifyCommand("next")}
-              className="w-6 h-6 rounded flex items-center justify-center text-[#64748b] dark:text-[#7e8c9f] hover:text-current transition-colors cursor-pointer"
-              title="Next song"
-            >
-              <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
-                <path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-              </svg>
-            </button>
           </div>
         </div>
 
-        {/* Minimalist Search & Mode Pill */}
-        <div className="p-2 border-b border-inherit flex items-center gap-1.5">
-          <form onSubmit={handleSearchSubmit} className="flex-1">
-            <input
-              type="text"
-              placeholder={
-                viewMode === "tracks"
-                  ? "Find a song or paste a link..."
-                  : "Find a playlist or paste a link..."
-              }
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full px-2 py-1 text-[11px] rounded-lg border focus:outline-none transition-colors ${
-                isDark
-                  ? "bg-[#101620] border-[#1d2634] text-white placeholder-[#64748b] focus:border-[#1DB954]"
-                  : "bg-[#f8fafc] border-[#cbd5e1] text-[#0f172a] placeholder-[#94a3b8] focus:border-[#1DB954]"
-              }`}
-            />
+        {/* Device Sync & Handoff Bar */}
+        {connected && (
+          <div className="px-3 py-1.5 border-b border-inherit bg-[#1DB954]/[0.06] flex items-center justify-between gap-2 text-[10.5px] shrink-0">
+            {connectState.needsScopeUpgrade ? (
+              <div className="flex items-center justify-between w-full gap-2">
+                <span className="text-[#64748b] dark:text-[#94a3b8] truncate">
+                  Control from your Spotify app:
+                </span>
+                <a
+                  href="/api/spotify/auth"
+                  className="font-semibold text-[#1DB954] hover:underline shrink-0"
+                >
+                  Enable sync →
+                </a>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      connectState.activeDeviceName || connectState.sdkReady
+                        ? "bg-[#1DB954]"
+                        : "bg-[#64748b]"
+                    }`}
+                  />
+                  <span className="truncate text-[#64748b] dark:text-[#94a3b8]">
+                    {connectState.activeDeviceName
+                      ? `Listening on ${connectState.activeDeviceName}`
+                      : connectState.sdkReady
+                      ? "Synced with Spotify app"
+                      : connectState.premiumRequired
+                      ? "Web player active (Spotify Free)"
+                      : "Connected to Spotify"}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {connectState.sdkDeviceId &&
+                    connectState.activeDeviceId &&
+                    connectState.activeDeviceId !== connectState.sdkDeviceId && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!connectState.sdkDeviceId) return;
+                          await fetch("/api/spotify/player", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              action: "transfer",
+                              deviceId: connectState.sdkDeviceId,
+                              play: true,
+                            }),
+                          });
+                        }}
+                        className="text-[#1DB954] font-semibold hover:underline cursor-pointer"
+                        title="Play on this browser tab"
+                      >
+                        Play here
+                      </button>
+                    )}
+
+                  <a
+                    href={
+                      currentTrack.uri?.startsWith("spotify:")
+                        ? currentTrack.uri
+                        : prefs.selectedPlaylistUri || "spotify:"
+                    }
+                    className="text-[#1DB954] font-semibold hover:underline"
+                    title="Open in your Spotify app"
+                  >
+                    Open Spotify ↗
+                  </a>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Minimalist Search & Mode Switcher */}
+        <div className="p-2.5 border-b border-inherit flex items-center gap-2 shrink-0">
+          <form onSubmit={handleSearchSubmit} className="flex-1 min-w-0">
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                placeholder={
+                  viewMode === "tracks"
+                    ? "Search songs or paste Spotify link..."
+                    : "Search playlists or paste link..."
+                }
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-full pl-2.5 pr-6 py-1.5 text-xs rounded-lg border focus:outline-none transition-colors ${
+                  isDark
+                    ? "bg-[#101620] border-[#1d2634] text-white placeholder-[#64748b] focus:border-[#1DB954]"
+                    : "bg-[#f8fafc] border-[#cbd5e1] text-[#0f172a] placeholder-[#94a3b8] focus:border-[#1DB954]"
+                }`}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 text-xs text-[#64748b] hover:text-current cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </form>
 
+          {/* Segmented Control */}
           <div className="flex rounded-lg border border-inherit p-0.5 shrink-0 bg-black/5 dark:bg-white/5">
             <button
               type="button"
-              onClick={() => {
-                setViewMode("tracks");
-              }}
-              className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer ${
+              onClick={() => setViewMode("tracks")}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
                 viewMode === "tracks"
-                  ? "bg-[#1DB954] text-black font-semibold"
+                  ? "bg-[#1DB954] text-black font-semibold shadow-xs"
                   : "text-[#64748b] dark:text-[#7e8c9f] hover:text-current"
               }`}
             >
@@ -680,9 +869,9 @@ export default function DraggableSpotifyWidget() {
             <button
               type="button"
               onClick={() => setViewMode("playlists")}
-              className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
                 viewMode === "playlists"
-                  ? "bg-[#1DB954] text-black font-semibold"
+                  ? "bg-[#1DB954] text-black font-semibold shadow-xs"
                   : "text-[#64748b] dark:text-[#7e8c9f] hover:text-current"
               }`}
             >
@@ -693,12 +882,12 @@ export default function DraggableSpotifyWidget() {
 
         {/* Sub-header when viewing a specific playlist's songs */}
         {viewMode === "tracks" && selectedPlaylistInfo && (
-          <div className="px-2.5 py-1.5 bg-[#1DB954]/10 border-b border-inherit flex items-center justify-between gap-2 text-[10px]">
+          <div className="px-3 py-1.5 bg-[#1DB954]/10 border-b border-inherit flex items-center justify-between gap-2 text-[10.5px] shrink-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <button
                 type="button"
                 onClick={() => setViewMode("playlists")}
-                className="text-[#64748b] dark:text-[#7e8c9f] hover:text-current cursor-pointer shrink-0 font-medium"
+                className="text-[#64748b] dark:text-[#7e8c9f] hover:text-current cursor-pointer font-medium"
                 title="Go back to all playlists"
               >
                 ← Playlists
@@ -716,25 +905,25 @@ export default function DraggableSpotifyWidget() {
                 setPlaylistTracks([]);
               }}
               className="text-[#64748b] dark:text-[#7e8c9f] hover:text-current cursor-pointer shrink-0"
-              title="Switch back to built-in focus songs"
+              title="Switch back to focus picks"
             >
               Focus picks
             </button>
           </div>
         )}
 
-        {/* Scrollable Track / Playlist Selector */}
-        <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1 min-h-[170px] max-h-[240px]">
+        {/* Scrollable Track / Playlist Selector: Takes all available remaining height smoothly */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-1">
           {viewMode === "tracks" ? (
             isLoadingTracks ? (
-              <div className="py-8 text-center text-[11px] text-[#64748b] dark:text-[#7e8c9f]">
-                Loading songs from this playlist...
+              <div className="py-12 text-center text-xs text-[#64748b] dark:text-[#7e8c9f]">
+                Loading songs...
               </div>
             ) : filteredTracks.length === 0 ? (
-              <div className="py-8 px-3 text-center text-[11px] text-[#64748b] dark:text-[#7e8c9f]">
+              <div className="py-12 px-4 text-center text-xs text-[#64748b] dark:text-[#7e8c9f]">
                 {searchQuery.trim()
-                  ? "No songs match your search. Paste a Spotify link and press Enter to play it."
-                  : "This playlist doesn't have any songs yet."}
+                  ? "No songs match your search. Paste a Spotify link above to play it."
+                  : "No songs available in this playlist yet."}
               </div>
             ) : (
               filteredTracks.map((t) => {
@@ -745,7 +934,7 @@ export default function DraggableSpotifyWidget() {
                     key={t.id || t.uri}
                     type="button"
                     onClick={() => handleSelectTrack(t)}
-                    className={`w-full px-2 py-1.5 rounded-lg text-left flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                    className={`w-full px-2.5 py-2 rounded-lg text-left flex items-center justify-between gap-2.5 transition-all cursor-pointer ${
                       isSelected
                         ? "bg-[#1DB954]/15 border border-[#1DB954]/40"
                         : isDark
@@ -753,17 +942,17 @@ export default function DraggableSpotifyWidget() {
                         : "hover:bg-black/5 border border-transparent"
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {/* Play Indicator / Equalizer */}
-                      <span className="w-3 text-center shrink-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {/* Equalizer or Note Icon */}
+                      <span className="w-4 text-center shrink-0">
                         {isSelected && isPlayingSpotify ? (
-                          <span className="flex items-center justify-center gap-0.5">
-                            <span className="w-0.5 h-2 bg-[#1DB954] rounded-full animate-eq-1" />
-                            <span className="w-0.5 h-2.5 bg-[#1DB954] rounded-full animate-eq-2" />
-                            <span className="w-0.5 h-1.5 bg-[#1DB954] rounded-full animate-eq-3" />
+                          <span className="flex items-center justify-center gap-0.5 h-3">
+                            <span className="w-0.5 bg-[#1DB954] rounded-full animate-eq-1" />
+                            <span className="w-0.5 bg-[#1DB954] rounded-full animate-eq-2" />
+                            <span className="w-0.5 bg-[#1DB954] rounded-full animate-eq-3" />
                           </span>
                         ) : (
-                          <span className="text-[10px] text-[#64748b] dark:text-[#7e8c9f]">
+                          <span className="text-[11px] text-[#64748b] dark:text-[#7e8c9f]">
                             {isSelected ? "▶" : "♪"}
                           </span>
                         )}
@@ -771,7 +960,7 @@ export default function DraggableSpotifyWidget() {
 
                       <div className="min-w-0">
                         <div
-                          className={`text-[11px] truncate leading-tight ${
+                          className={`text-xs truncate leading-tight ${
                             isSelected
                               ? "font-bold text-[#1DB954]"
                               : "font-medium"
@@ -779,14 +968,14 @@ export default function DraggableSpotifyWidget() {
                         >
                           {t.title}
                         </div>
-                        <div className="text-[9.5px] text-[#64748b] dark:text-[#7e8c9f] truncate leading-tight">
+                        <div className="text-[10.5px] text-[#64748b] dark:text-[#7e8c9f] truncate leading-tight mt-0.5">
                           {t.artist}
                           {t.category ? ` · ${t.category}` : ""}
                         </div>
                       </div>
                     </div>
 
-                    <span className="text-[9.5px] text-[#64748b] dark:text-[#7e8c9f] shrink-0 font-mono">
+                    <span className="text-[10px] text-[#64748b] dark:text-[#7e8c9f] shrink-0 font-mono">
                       {t.duration || ""}
                     </span>
                   </button>
@@ -795,26 +984,46 @@ export default function DraggableSpotifyWidget() {
             )
           ) : (
             // PLAYLISTS VIEW: User Playlists + Curated Focus Playlists
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {/* User Connected Playlists Section */}
-              {connected && (
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between px-1 pt-1 pb-0.5">
-                    <span className="text-[10px] font-bold text-[#64748b] dark:text-[#7e8c9f] uppercase tracking-wider">
-                      Your Playlists {spotifyUser ? `(${spotifyUser.displayName})` : ""}
+              {(connected || userPlaylists.length > 0) && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between px-1 pt-1 pb-0.5 gap-1">
+                    <span className="text-[10.5px] font-bold text-[#64748b] dark:text-[#7e8c9f] uppercase tracking-wider truncate">
+                      Your Library {spotifyUser ? `· ${spotifyUser.displayName}` : ""}
                     </span>
-                    <span className="text-[9px] text-[#64748b] dark:text-[#7e8c9f]">
-                      {userPlaylists.length} {userPlaylists.length === 1 ? "playlist" : "playlists"}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] text-[#64748b] dark:text-[#7e8c9f]">
+                        {userPlaylists.length} {userPlaylists.length === 1 ? "playlist" : "playlists"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => fetchPlaylists(true)}
+                        disabled={isLoadingPlaylists}
+                        title="Refresh playlists"
+                        className="text-xs text-[#64748b] dark:text-[#7e8c9f] hover:text-[#1DB954] transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        {isLoadingPlaylists ? "…" : "↻"}
+                      </button>
+                    </div>
                   </div>
 
-                  {isLoadingPlaylists ? (
-                    <div className="py-3 text-center text-[10.5px] text-[#64748b] dark:text-[#7e8c9f]">
+                  {isLoadingPlaylists && userPlaylists.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-[#64748b] dark:text-[#7e8c9f]">
                       Loading your playlists...
                     </div>
                   ) : filteredUserPlaylists.length === 0 ? (
-                    <div className="py-2 text-center text-[10.5px] text-[#64748b] dark:text-[#7e8c9f]">
-                      No playlists match your search.
+                    <div className="p-3 rounded-xl bg-black/5 dark:bg-white/5 border border-inherit text-center text-xs text-[#64748b] dark:text-[#7e8c9f] flex flex-col gap-1.5">
+                      <span>
+                        No playlists found. Paste any Spotify playlist link in the search bar above to add it.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => fetchPlaylists(true)}
+                        className="text-[#1DB954] font-semibold hover:underline cursor-pointer"
+                      >
+                        Refresh playlists ↻
+                      </button>
                     </div>
                   ) : (
                     filteredUserPlaylists.map((pl) => {
@@ -824,7 +1033,7 @@ export default function DraggableSpotifyWidget() {
                       return (
                         <div
                           key={pl.id}
-                          className={`w-full px-2 py-1.5 rounded-lg flex items-center justify-between gap-1.5 transition-all ${
+                          className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between gap-2 transition-all ${
                             isSelected
                               ? "bg-[#1DB954]/15 border border-[#1DB954]/40"
                               : isDark
@@ -835,9 +1044,9 @@ export default function DraggableSpotifyWidget() {
                           <button
                             type="button"
                             onClick={() => handleSelectPlaylist(pl)}
-                            className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer"
+                            className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
                           >
-                            <div className="w-6 h-6 rounded bg-[#1c2432] shrink-0 overflow-hidden flex items-center justify-center">
+                            <div className="w-8 h-8 rounded-lg bg-[#1c2432] shrink-0 overflow-hidden flex items-center justify-center">
                               {pl.imageUrl ? (
                                 <img
                                   src={pl.imageUrl}
@@ -845,32 +1054,31 @@ export default function DraggableSpotifyWidget() {
                                   className="w-full h-full object-cover"
                                 />
                               ) : (
-                                <span className="text-[10px] text-[#1DB954]">♫</span>
+                                <span className="text-xs text-[#1DB954]">♫</span>
                               )}
                             </div>
                             <div className="min-w-0">
                               <div
-                                className={`text-[11px] truncate leading-tight ${
+                                className={`text-xs truncate leading-tight ${
                                   isSelected
                                     ? "font-bold text-[#1DB954]"
-                                    : "font-medium"
+                                    : "font-semibold"
                                 }`}
                               >
                                 {pl.name}
                               </div>
-                              <div className="text-[9.5px] text-[#64748b] dark:text-[#7e8c9f] truncate leading-tight">
+                              <div className="text-[10px] text-[#64748b] dark:text-[#7e8c9f] truncate leading-tight mt-0.5">
                                 {pl.tracksTotal > 0
-                                  ? `${pl.tracksTotal} ${pl.tracksTotal === 1 ? "song" : "songs"}`
-                                  : "Open playlist"}
+                                  ? `${pl.tracksTotal} ${pl.tracksTotal === 1 ? "track" : "tracks"}`
+                                  : "Play playlist"}
                               </div>
                             </div>
                           </button>
 
-                          {/* Quick button to view individual songs inside this playlist */}
                           <button
                             type="button"
                             onClick={() => handleViewPlaylistTracks(pl)}
-                            className="px-1.5 py-0.5 rounded text-[9.5px] text-[#64748b] dark:text-[#7e8c9f] hover:text-[#1DB954] hover:bg-black/10 dark:hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+                            className="px-2 py-1 rounded-md text-[10px] font-medium text-[#64748b] dark:text-[#7e8c9f] hover:text-[#1DB954] hover:bg-black/10 dark:hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
                             title="Browse songs in this playlist"
                           >
                             Songs ❯
@@ -884,23 +1092,23 @@ export default function DraggableSpotifyWidget() {
 
               {/* Not Connected prompt */}
               {!connected && (
-                <div className="p-2 rounded-lg bg-black/5 dark:bg-white/5 border border-inherit text-center flex flex-col gap-1">
-                  <span className="text-[10px] text-[#64748b] dark:text-[#7e8c9f]">
-                    Want to listen to your own playlists?
+                <div className="p-3 rounded-xl bg-black/5 dark:bg-white/5 border border-inherit text-center flex flex-col gap-1.5">
+                  <span className="text-xs text-[#64748b] dark:text-[#7e8c9f]">
+                    Listen to your personal Spotify library
                   </span>
                   <Link
                     href="/connected-apps"
-                    className="text-[10.5px] font-semibold text-[#1DB954] hover:underline"
+                    className="text-xs font-semibold text-[#1DB954] hover:underline"
                   >
-                    Connect your Spotify →
+                    Connect Spotify account →
                   </Link>
                 </div>
               )}
 
               {/* Curated Focus Playlists Section */}
-              <div className="flex flex-col gap-1 pt-1 border-t border-inherit">
-                <span className="text-[10px] font-bold text-[#64748b] dark:text-[#7e8c9f] uppercase tracking-wider px-1">
-                  Starter Focus Playlists
+              <div className="flex flex-col gap-1.5 pt-1 border-t border-inherit">
+                <span className="text-[10.5px] font-bold text-[#64748b] dark:text-[#7e8c9f] uppercase tracking-wider px-1">
+                  Focus Soundtracks
                 </span>
                 {filteredCuratedPlaylists.map((pl) => {
                   const isSelected =
@@ -909,7 +1117,7 @@ export default function DraggableSpotifyWidget() {
                   return (
                     <div
                       key={pl.id}
-                      className={`w-full px-2 py-1.5 rounded-lg flex items-center justify-between gap-1.5 transition-all ${
+                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between gap-2 transition-all ${
                         isSelected
                           ? "bg-[#1DB954]/15 border border-[#1DB954]/40"
                           : isDark
@@ -920,22 +1128,30 @@ export default function DraggableSpotifyWidget() {
                       <button
                         type="button"
                         onClick={() => handleSelectPlaylist(pl)}
-                        className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer"
+                        className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
                       >
-                        <span className="w-3 text-center shrink-0 text-[10px] text-[#64748b] dark:text-[#7e8c9f]">
-                          {isSelected ? "▶" : "♫"}
-                        </span>
+                        <div className="w-8 h-8 rounded-lg bg-[#1c2432] shrink-0 overflow-hidden flex items-center justify-center">
+                          {pl.imageUrl ? (
+                            <img
+                              src={pl.imageUrl}
+                              alt={pl.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-xs text-[#1DB954]">♫</span>
+                          )}
+                        </div>
                         <div className="min-w-0">
                           <div
-                            className={`text-[11px] truncate leading-tight ${
+                            className={`text-xs truncate leading-tight ${
                               isSelected
                                 ? "font-bold text-[#1DB954]"
-                                : "font-medium"
+                                : "font-semibold"
                             }`}
                           >
                             {pl.name}
                           </div>
-                          <div className="text-[9.5px] text-[#64748b] dark:text-[#7e8c9f] truncate leading-tight">
+                          <div className="text-[10px] text-[#64748b] dark:text-[#7e8c9f] truncate leading-tight mt-0.5">
                             {pl.description}
                           </div>
                         </div>
@@ -944,7 +1160,7 @@ export default function DraggableSpotifyWidget() {
                       <button
                         type="button"
                         onClick={() => handleViewPlaylistTracks(pl)}
-                        className="px-1.5 py-0.5 rounded text-[9.5px] text-[#64748b] dark:text-[#7e8c9f] hover:text-[#1DB954] hover:bg-black/10 dark:hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+                        className="px-2 py-1 rounded-md text-[10px] font-medium text-[#64748b] dark:text-[#7e8c9f] hover:text-[#1DB954] hover:bg-black/10 dark:hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
                         title="Browse songs in this playlist"
                       >
                         Songs ❯
@@ -957,29 +1173,26 @@ export default function DraggableSpotifyWidget() {
           )}
         </div>
 
-        {/* Toggleable Official Spotify Player Drawer (stays mounted in DOM for continuous background playback) */}
-        <div className="border-t border-inherit px-2.5 py-1.5 flex items-center justify-between text-[10px]">
+        {/* Toggleable Web Player Drawer */}
+        <div className="border-t border-inherit px-3 py-2 flex items-center justify-between text-[11px] shrink-0 bg-black/[0.02] dark:bg-white/[0.02]">
           <button
             type="button"
             onClick={() => setShowNativeEmbed((prev) => !prev)}
-            className="text-[#64748b] dark:text-[#7e8c9f] hover:text-[#1DB954] transition-colors cursor-pointer font-medium"
+            className="text-[#64748b] dark:text-[#7e8c9f] hover:text-[#1DB954] transition-colors cursor-pointer font-medium flex items-center gap-1"
           >
-            {showNativeEmbed ? "Hide full player ▲" : "Show full player ▼"}
+            <span>{showNativeEmbed ? "Hide web player" : "Show web player"}</span>
+            <span className="text-[10px]">{showNativeEmbed ? "▲" : "▼"}</span>
           </button>
-          <span className="text-[9.5px] text-[#64748b] dark:text-[#7e8c9f] truncate max-w-[130px]">
+          <span className="text-[10px] text-[#64748b] dark:text-[#7e8c9f] truncate max-w-[150px]">
             {prefs.selectedPlaylistName || "Deep Focus"}
           </span>
         </div>
 
-        <div
-          className={
-            showNativeEmbed
-              ? "px-2 pb-2"
-              : "h-0 overflow-hidden opacity-0 pointer-events-none"
-          }
-        >
-          <SpotifyFocusPlayer compact embedOnly />
-        </div>
+        {showNativeEmbed && (
+          <div className="px-2.5 pb-2.5 shrink-0">
+            <SpotifyFocusPlayer compact embedOnly />
+          </div>
+        )}
       </div>
     </>
   );

@@ -90,16 +90,21 @@ Do Not Disturb features an offline-capable, procedural sound generator that runs
 
 When a focus or break interval reaches zero, Do Not Disturb sounds an acoustic meditation chime (modeled after a traditional Tibetan singing bowl). You can toggle this on or off in `/settings`.
 
-### 4.3 Spotify Focus Music & Playlists
+### 4.3 Spotify Focus Music, Playlists & Two-Way App Sync
 
 In addition to procedural ambient sounds, you can play focus music from Spotify using the **Focus Session Audio** card on the dashboard (`/`) or the floating **Spotify Focus Widget** button in the corner of your screen:
 
 1. **Toggle Audio Source**: Click the **Spotify** tab in the *Focus Session Audio* selector on the dashboard (or select a track/playlist in the floating Spotify widget). Switching to Spotify automatically stops any playing ambient soundscape, and switching back to Ambient pauses Spotify.
-2. **Floating Spotify Widget**: Drag the green Spotify button anywhere along the screen edge or tap it to open the compact popover controller. Switch between **Tracks** and **Playlists**, drill into any playlist via **Tracks ❯**, or expand **Show Spotify Embed ▼** to interact directly with the official Spotify player.
-3. **Curated Focus Library**: Even without connecting an account, you can choose from five built-in focus playlists (*Deep Focus*, *Lo-Fi Beats*, *Peaceful Piano*, *Chill Lofi Study*, or *Coding Mode*) and curated instrumental focus tracks (*Weightless*, *Clair de Lune*, *Gymnopédie No. 1*, *Experience*, *Cornfield Chase*, and more).
-4. **Connect Your Spotify Account**: Click **Connect Spotify** in the widget or visit `/connected-apps` to authorize your personal library. Once connected, your personal and saved playlists appear automatically across tabs. You can disconnect at any time from `/connected-apps`.
-5. **Paste Any Playlist, Album, or Track**: Use the search/link input in the widget to filter tracks/playlists or paste any Spotify web link (`https://open.spotify.com/playlist/...`) or Spotify URI (`spotify:playlist:...`) and press Enter.
-6. **Session Continuity & Cloud Sync**: Pausing your timer or stepping away preserves your active track (`lastPlayedTrackUri`) without losing your selected playlist. Your Spotify preferences are also included in JSON settings backups and cloud synchronization.
+2. **Floating Spotify Widget**: Drag the green Spotify button anywhere along the screen edge or tap it to open the compact popover controller. Switch between **Songs** and **Playlists**, drill into any playlist via **Songs ❯**, refresh your playlists via **↻**, or expand **Show full player ▼** to interact directly with the embedded player.
+3. **Two-Way Sync with Your Spotify App (Spotify Connect)**:
+   - When connected, Do Not Disturb registers as a live **Spotify Connect** device (`"Do Not Disturb Focus"`).
+   - **See What's Playing in Your Spotify App**: Any song or playlist you start on the website appears immediately in your native Spotify desktop or mobile app.
+   - **Change Songs From Either Place**: Skip tracks, pick a new song or playlist, or pause playback directly from your Spotify mobile/desktop app or from the website—both stay synchronized in real time.
+   - **Quick Handoff (`Play here` / `Open App ↗`)**: Use the sync bar in the floating widget to transfer active playback from your phone/desktop app into the browser tab (`Play here`) or launch the current song/playlist directly in the native Spotify app (`Open App ↗`).
+4. **Connect Your Spotify Account**: Click **Connect Spotify** in the widget or visit `/connected-apps` to authorize your personal library. Once connected, your personal playlists appear immediately on `/connected-apps`, in the floating widget's **Playlists** tab, in `/settings#sounds`, and in the Picture-in-Picture mini-timer.
+5. **Import Any Playlist, Album, or Track by Link**: Paste any Spotify web link (`https://open.spotify.com/playlist/...`) or Spotify URI (`spotify:playlist:...`) into the input box in the floating widget, `/connected-apps`, or the `/settings#sounds` playlist selector. Do Not Disturb resolves the playlist's title, cover artwork, owner, and full track list and saves it to **Your Playlists**.
+6. **Curated Focus Library**: Even without connecting an account, you can choose from five built-in focus playlists (*Deep Focus*, *Lo-Fi Beats*, *Peaceful Piano*, *Chill Lofi Study*, or *Coding Mode*) and curated instrumental focus tracks (*Weightless*, *Clair de Lune*, *Gymnopédie No. 1*, *Experience*, *Cornfield Chase*, and more).
+7. **Session Continuity & Cloud Sync**: Pausing your timer or stepping away preserves your active track (`lastPlayedTrackUri`) without losing your selected playlist. Your Spotify preferences are also included in JSON settings backups and cloud synchronization.
 
 ### 4.4 Timer Playback Coordination & Picture-in-Picture
 

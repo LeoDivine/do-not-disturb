@@ -44,7 +44,9 @@ export async function GET(req: NextRequest) {
     "playlist-read-private",
     "playlist-read-collaborative",
     "user-read-playback-state",
+    "user-modify-playback-state",
     "user-read-currently-playing",
+    "streaming",
   ].join(" ");
 
   const authorizeUrl = new URL("https://accounts.spotify.com/authorize");

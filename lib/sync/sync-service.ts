@@ -130,6 +130,7 @@ export function sanitizeSyncPayload(data: any): Partial<SyncPayload> {
       autoStartBreaks: Boolean(data.settings.autoStartBreaks),
       autoStartFocus: Boolean(data.settings.autoStartFocus),
       strictBlocking: data.settings.strictBlocking === "SUSPEND" ? "SUSPEND" : "STRICT",
+      lockSettingsDuringFocus: Boolean(data.settings.lockSettingsDuringFocus),
       acousticPreset: typeof data.settings.acousticPreset === "string" ? data.settings.acousticPreset : "rain",
       bgAmbienceVolume: typeof data.settings.bgAmbienceVolume === "number" ? Math.min(100, Math.max(0, data.settings.bgAmbienceVolume)) : 65,
       completionChime: Boolean(data.settings.completionChime),

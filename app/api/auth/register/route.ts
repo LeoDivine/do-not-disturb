@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
             autoStartBreaks: initialPayload?.settings?.autoStartBreaks ?? true,
             autoStartFocus: initialPayload?.settings?.autoStartFocus ?? false,
             strictBlocking: initialPayload?.settings?.strictBlocking ?? "STRICT",
+            lockSettingsDuringFocus: initialPayload?.settings?.lockSettingsDuringFocus ?? false,
             acousticPreset: initialPayload?.settings?.acousticPreset ?? "rain",
             bgAmbienceVolume: initialPayload?.settings?.bgAmbienceVolume ?? 65,
             completionChime: initialPayload?.settings?.completionChime ?? true,

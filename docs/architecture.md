@@ -144,18 +144,20 @@ Rather than streaming heavy audio assets over the network, Do Not Disturb utiliz
 
 ### 3.2 Spotify Integration & Dual Audio Architecture
 
-Do Not Disturb pairs its procedural synthesizer with the official Spotify IFrame Embed Controller (`components/spotify/spotify-focus-player.tsx`) mounted inside the persistent global `DraggableSpotifyWidget` (`components/spotify/draggable-spotify-widget.tsx`):
+Do Not Disturb pairs its procedural synthesizer with a two-way **Spotify Connect + Web Playback SDK** engine (`window.Spotify.Player` registered as `"Do Not Disturb Focus"` and `/api/spotify/player`) backed by the official Spotify IFrame Embed Controller (`components/spotify/spotify-focus-player.tsx`), mounted inside the persistent global `DraggableSpotifyWidget` (`components/spotify/draggable-spotify-widget.tsx`):
 
 1. **Unified Audio Coordinator (`lib/sound/audio-coordinator.ts`)**:
    - Offers three operating modes: `ambient` (synthesizer only), `spotify` (Spotify only), and `both` (ambient rain or beats layered gently under Spotify tracks).
    - Cleanly transitions between audio sources via `switchAudioSource()`, automatically stopping the Web Audio synthesizer when switching to Spotify and pausing Spotify when switching to Ambient.
    - Listens to `TimerContext` lifecycle events: automatically starts playback when focus begins (`playFocusAudio`), pauses playback during short and long breaks (`pauseFocusAudio`, respecting `pauseOnBreak`), and halts playback on session reset (`stopFocusAudio`).
    - Dispatches instantaneous playback commands (`play`, `pause`, `resume`, `toggle`, `next`, `prev`) with optional target track/playlist URIs across windows and tabs via `BroadcastChannel("dnd-spotify-command-channel")` and custom DOM events.
-2. **Track Memory & Metadata Separation**:
+2. **Two-Way Spotify App Synchronization (`SpotifyConnectState` & `/api/spotify/player`)**:
+   - Registers the browser tab as a live Spotify Connect device (`"Do Not Disturb Focus"`). Songs started on the website immediately appear in the user's native Spotify desktop and mobile apps, and changing songs or pausing inside the Spotify app updates the website in real time.
+3. **Track Memory, Custom Playlist Importing & Metadata Separation**:
    - Selecting an individual track updates `lastPlayedTrackUri` without overwriting the user's selected playlist metadata (`selectedPlaylistUri`, `selectedPlaylistName`, `selectedPlaylistImage`), while selecting a new playlist resets `lastPlayedTrackUri` to `null`.
-   - When users pause to take a break or step away, resuming the timer continues playback on the same track rather than resetting to the first song of the playlist.
-3. **Picture-in-Picture Mini Window**:
-   - Synchronizes now-playing artwork, artist name, and track title from `current-track-store.ts` directly into the floating desktop PiP window (`components/mini-timer-window.tsx`), and wires **Full Player ↗** to open the floating Spotify widget (`OPEN_SPOTIFY_WIDGET_EVENT`).
+   - Users can paste any Spotify playlist link or URI (`importSpotifyPlaylistOrTrack`) to resolve full metadata & tracks via `/api/spotify/playlists?playlistId=...` and persist it in `dnd_spotify_custom_playlists`.
+4. **Picture-in-Picture Mini Window**:
+   - Synchronizes now-playing artwork, artist name, track title, and connected user playlists from `current-track-store.ts` and `spotify-store.ts` directly into the floating desktop PiP window (`components/mini-timer-window.tsx`), and wires **Full Player ↗** to open the floating Spotify widget (`OPEN_SPOTIFY_WIDGET_EVENT`).
    - For full technical details and sequence flows, refer to the [Spotify Integration Guide](spotify-integration.md).
 
 ---

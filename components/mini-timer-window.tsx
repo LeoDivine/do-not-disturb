@@ -13,11 +13,14 @@ import {
 } from "../lib/sound/current-track-store";
 import {
   SpotifyStoredPreference,
+  SpotifyPlaylistItem,
   DEFAULT_SPOTIFY_PREFS,
   CURATED_FOCUS_PLAYLISTS,
   CURATED_FOCUS_TRACKS,
+  fetchSpotifyPlaylistsShared,
   getStoredSpotifyPreferences,
   saveStoredSpotifyPreferences,
+  subscribeToSpotifyAuthUpdates,
   subscribeToSpotifyPreferences,
 } from "../lib/spotify/spotify-store";
 import {
@@ -100,15 +103,32 @@ export default function MiniTimerWindow() {
   // Spotify preferences for embed player
   const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(DEFAULT_SPOTIFY_PREFS);
   const spotifyPrefsRef = useRef<SpotifyStoredPreference>(spotifyPrefs);
+  const userPlaylistsRef = useRef<SpotifyPlaylistItem[]>([]);
   useEffect(() => {
     spotifyPrefsRef.current = spotifyPrefs;
   }, [spotifyPrefs]);
 
   useEffect(() => {
     setSpotifyPrefs(getStoredSpotifyPreferences());
-    return subscribeToSpotifyPreferences((updated) => {
+    fetchSpotifyPlaylistsShared(false)
+      .then((res) => {
+        userPlaylistsRef.current = res.playlists || [];
+      })
+      .catch(() => {});
+    const unsubAuth = subscribeToSpotifyAuthUpdates(() => {
+      fetchSpotifyPlaylistsShared(true)
+        .then((res) => {
+          userPlaylistsRef.current = res.playlists || [];
+        })
+        .catch(() => {});
+    });
+    const unsubPrefs = subscribeToSpotifyPreferences((updated) => {
       setSpotifyPrefs(updated);
     });
+    return () => {
+      unsubAuth();
+      unsubPrefs();
+    };
   }, []);
 
   // Sync title when tab is hidden
@@ -894,7 +914,7 @@ export default function MiniTimerWindow() {
         };
       }).documentPictureInPicture.requestWindow({
         width: 360,
-        height: 320,
+        height: 380,
       });
 
       pipWindowRef.current = pip;
@@ -1462,7 +1482,15 @@ export default function MiniTimerWindow() {
       const initialShowSpotify = false;
 
       const focusTracksList = [
-        ...CURATED_FOCUS_PLAYLISTS.map((pl) => ({
+        ...userPlaylistsRef.current.map((pl) => ({
+          name: pl.name,
+          artist: pl.ownerName || "Your Playlist",
+          uri: pl.uri,
+          type: "playlist" as const,
+        })),
+        ...CURATED_FOCUS_PLAYLISTS.filter(
+          (c) => !userPlaylistsRef.current.some((u) => u.uri === c.uri)
+        ).map((pl) => ({
           name: pl.name,
           artist: pl.ownerName,
           uri: pl.uri,

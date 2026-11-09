@@ -11,7 +11,7 @@ Explore the detailed documentation guides below:
 | Document | Description |
 | :--- | :--- |
 | **[Architecture Guide](architecture.md)** | Technical architecture, data flow, Web Audio synthesis engine, extension bridge, and state synchronization. |
-| **[Spotify Integration Flow](spotify-integration.md)** | End-to-end guide on Spotify OAuth 2.0, AES-256-GCM encrypted sessions, IFrame Embed Controller, PiP sync, and audio coordination. |
+| **[Spotify Integration Flow](spotify-integration.md)** | End-to-end guide on Spotify OAuth 2.0, AES-256-GCM encrypted sessions, Two-Way Spotify Connect + Web Playback SDK, IFrame Embed fallback, PiP sync, and audio coordination. |
 | **[Superadmin Telemetry Guide](superadmin-guide.md)** | Privacy-first `/admin` command center, live timer pulse (Signed-In + Local Guests), `k`-anonymized blocker stats, and storage hygiene. |
 | **[Gamification & Zen Sanctuary Guide](gamification-guide.md)** | Flow XP engine, levels, compassionate streaks, procedural Zen Bonsai, soundscape unlocks, and milestones. |
 | **[Companion Extension Guide](extension-guide.md)** | Browser extension architecture, `declarativeNetRequest` rules engine, content script bridge, installation, and debugging. |
