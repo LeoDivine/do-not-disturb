@@ -11,18 +11,11 @@ import {
   DEFAULT_SPOTIFY_PREFS,
   fetchSpotifyPlaylistsShared,
   getStoredSpotifyPreferences,
-  importSpotifyPlaylistOrTrack,
   notifySpotifyAuthChanged,
   saveStoredSpotifyPreferences,
-  SpotifyPlaylistItem,
   SpotifyProfile,
-  SpotifyStoredPreference,
   subscribeToSpotifyAuthUpdates,
-  subscribeToSpotifyPreferences,
 } from "../../lib/spotify/spotify-store";
-import { sendSpotifyCommand } from "../../lib/sound/audio-coordinator";
-import { setCurrentPlayingTrack } from "../../lib/sound/current-track-store";
-import { OPEN_SPOTIFY_WIDGET_EVENT } from "../../components/spotify/draggable-spotify-widget";
 
 interface UpcomingApp {
   id: string;
@@ -172,15 +165,7 @@ export default function ConnectedAppsPage() {
 
   const [spotifyConnected, setSpotifyConnected] = useState<boolean>(false);
   const [spotifyUser, setSpotifyUser] = useState<SpotifyProfile | null>(null);
-  const [spotifyPlaylists, setSpotifyPlaylists] = useState<SpotifyPlaylistItem[]>([]);
-  const [spotifyError, setSpotifyError] = useState<string | null>(null);
-  const [spotifyErrorCode, setSpotifyErrorCode] = useState<string | null>(null);
   const [isLoadingSpotify, setIsLoadingSpotify] = useState<boolean>(true);
-  const [customLinkInput, setCustomLinkInput] = useState<string>("");
-  const [isImportingLink, setIsImportingLink] = useState<boolean>(false);
-  const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(() =>
-    getStoredSpotifyPreferences()
-  );
 
   const loadSpotifyState = async (forceRefresh = false) => {
     setIsLoadingSpotify(true);
@@ -188,9 +173,6 @@ export default function ConnectedAppsPage() {
       const data = await fetchSpotifyPlaylistsShared(forceRefresh);
       setSpotifyConnected(Boolean(data.connected));
       setSpotifyUser(data.user || null);
-      setSpotifyPlaylists(data.playlists);
-      setSpotifyError(data.error || null);
-      setSpotifyErrorCode(data.errorCode || null);
     } catch {
       // Quietly ignore network errors in offline mode
     } finally {
@@ -201,7 +183,6 @@ export default function ConnectedAppsPage() {
   useEffect(() => {
     loadSpotifyState(false);
 
-    const unsubPrefs = subscribeToSpotifyPreferences((p) => setSpotifyPrefs(p));
     const unsubAuth = subscribeToSpotifyAuthUpdates(() => {
       loadSpotifyState(true);
     });
@@ -214,66 +195,10 @@ export default function ConnectedAppsPage() {
     window.addEventListener("message", handleWindowMessage);
 
     return () => {
-      unsubPrefs();
       unsubAuth();
       window.removeEventListener("message", handleWindowMessage);
     };
   }, []);
-
-  const handleSelectPlaylistOnCard = (pl: SpotifyPlaylistItem) => {
-    const currentPrefs = getStoredSpotifyPreferences();
-    const nextAudioSource =
-      currentPrefs.audioSource === "both" ? "both" : "spotify";
-    saveStoredSpotifyPreferences({
-      selectedPlaylistUri: pl.uri,
-      selectedPlaylistName: pl.name,
-      selectedPlaylistImage: pl.imageUrl,
-      selectedPlaylistOwner: pl.ownerName,
-      audioSource: nextAudioSource,
-      lastPlayedTrackUri: null,
-    });
-    sendSpotifyCommand("play", pl.uri);
-    setCurrentPlayingTrack({
-      title: pl.name,
-      artist: pl.ownerName,
-      source: "spotify",
-      isPlaying: true,
-      uri: pl.uri,
-      artworkUrl: pl.imageUrl,
-    });
-  };
-
-  const handleImportLinkSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = customLinkInput.trim();
-    if (!trimmed) return;
-    setIsImportingLink(true);
-    try {
-      const imported = await importSpotifyPlaylistOrTrack(trimmed);
-      if (imported?.playlist) {
-        const pl = imported.playlist;
-        setSpotifyPlaylists((prev) => [
-          pl,
-          ...prev.filter((item) => item.uri !== pl.uri && item.id !== pl.id),
-        ]);
-        sendSpotifyCommand("play", pl.uri);
-        setCurrentPlayingTrack({
-          title: pl.name,
-          artist: pl.ownerName,
-          source: "spotify",
-          isPlaying: true,
-          uri: pl.uri,
-          artworkUrl: pl.imageUrl,
-        });
-        setCustomLinkInput("");
-      } else if (imported?.type === "track") {
-        sendSpotifyCommand("play", imported.uri);
-        setCustomLinkInput("");
-      }
-    } finally {
-      setIsImportingLink(false);
-    }
-  };
 
   const handleConnectSpotify = () => {
     window.location.href = "/api/spotify/auth";
@@ -284,7 +209,6 @@ export default function ConnectedAppsPage() {
       await fetch("/api/spotify/status", { method: "DELETE" });
       setSpotifyConnected(false);
       setSpotifyUser(null);
-      setSpotifyPlaylists([]);
 
       // If the user's selected playlist was a personal playlist, reset to default curated playlist
       const currentPrefs = getStoredSpotifyPreferences();
@@ -374,7 +298,7 @@ export default function ConnectedAppsPage() {
               <p className="text-xs text-[#64748b] dark:text-[#7e8c9f] leading-relaxed">
                 {spotifyConnected ? (
                   <>
-                    Your Spotify account is connected. Select a playlist below to play it during focus sessions, or manage audio mixing in{" "}
+                    Your Spotify account is connected. Select a playlist and manage audio mixing in{" "}
                     <Link
                       href="/settings#sounds"
                       className="underline hover:opacity-80 font-medium"
@@ -398,130 +322,6 @@ export default function ConnectedAppsPage() {
                   </>
                 )}
               </p>
-
-              {/* Inline Your Playlists & Quick Link Importer when connected */}
-              {(spotifyConnected || spotifyPlaylists.length > 0) && (
-                <div className="flex flex-col gap-2 pt-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748b] dark:text-[#7e8c9f]">
-                      Your Playlists ({spotifyPlaylists.length})
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        window.dispatchEvent(
-                          new CustomEvent(OPEN_SPOTIFY_WIDGET_EVENT, {
-                            detail: { viewMode: "playlists" },
-                          })
-                        )
-                      }
-                      className="text-[11px] font-semibold text-[#1DB954] hover:underline cursor-pointer"
-                    >
-                      Open Player ↗
-                    </button>
-                  </div>
-
-                  {isLoadingSpotify && spotifyPlaylists.length === 0 ? (
-                    <div className="py-3 px-3 rounded-xl border border-dashed border-[#e2e8f0] dark:border-[#1d2634] text-center text-xs text-[#64748b] dark:text-[#7e8c9f]">
-                      Loading your Spotify playlists...
-                    </div>
-                  ) : spotifyPlaylists.length > 0 ? (
-                    <div className="max-h-[168px] overflow-y-auto flex flex-col gap-1 pr-1">
-                      {spotifyPlaylists.map((pl) => {
-                        const isSelected = spotifyPrefs.selectedPlaylistUri === pl.uri;
-                        return (
-                          <button
-                            key={pl.id || pl.uri}
-                            type="button"
-                            onClick={() => handleSelectPlaylistOnCard(pl)}
-                            className={`w-full px-2.5 py-1.5 rounded-xl border text-left flex items-center justify-between gap-2 transition-all cursor-pointer ${
-                              isSelected
-                                ? "bg-[#1DB954]/10 border-[#1DB954]/40"
-                                : isDark
-                                ? "bg-[#0c1119] border-[#1d2634] hover:border-[#2e3b4e]"
-                                : "bg-[#f8fafc] border-[#e2e8f0] hover:border-[#cbd5e1]"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-7 h-7 rounded-lg bg-[#1c2432] overflow-hidden shrink-0 flex items-center justify-center">
-                                {pl.imageUrl ? (
-                                  <img
-                                    src={pl.imageUrl}
-                                    alt={pl.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <span className="text-[11px] text-[#1DB954]">♫</span>
-                                )}
-                              </div>
-                              <div className="min-w-0">
-                                <div
-                                  className={`text-xs truncate ${
-                                    isSelected ? "font-bold text-[#1DB954]" : "font-medium"
-                                  }`}
-                                >
-                                  {pl.name}
-                                </div>
-                                <div className="text-[10px] text-[#64748b] dark:text-[#7e8c9f] truncate">
-                                  {pl.ownerName}
-                                  {pl.tracksTotal > 0
-                                    ? ` · ${pl.tracksTotal} ${pl.tracksTotal === 1 ? "song" : "songs"}`
-                                    : ""}
-                                </div>
-                              </div>
-                            </div>
-                            <span
-                              className={`text-[10px] font-semibold shrink-0 px-2 py-0.5 rounded-md ${
-                                isSelected
-                                  ? "bg-[#1DB954] text-black"
-                                  : "text-[#64748b] dark:text-[#7e8c9f]"
-                              }`}
-                            >
-                              {isSelected ? "Selected" : "Play"}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="p-2.5 rounded-xl border border-[#e2e8f0] dark:border-[#1d2634] bg-[#f8fafc] dark:bg-[#0c1119] text-[11px] text-[#64748b] dark:text-[#7e8c9f] leading-relaxed">
-                      {spotifyErrorCode === "spotify_dev_mode_restricted" ? (
-                        <span className="text-amber-600 dark:text-amber-400">
-                          Spotify Developer Mode limit reached for automatic library listing. Paste any Spotify playlist link below to import it immediately with all its tracks:
-                        </span>
-                      ) : spotifyError ? (
-                        <span>{spotifyError}</span>
-                      ) : (
-                        <span>
-                          No playlists found in your Spotify library yet. Paste any Spotify playlist link below to add it:
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Quick Playlist URL/URI Importer */}
-                  <form onSubmit={handleImportLinkSubmit} className="flex items-center gap-1.5 pt-0.5">
-                    <input
-                      type="text"
-                      value={customLinkInput}
-                      onChange={(e) => setCustomLinkInput(e.target.value)}
-                      placeholder="Paste Spotify playlist link to add..."
-                      className={`flex-1 px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none transition-colors ${
-                        isDark
-                          ? "bg-[#0c1119] border-[#1d2634] text-white placeholder-[#64748b] focus:border-[#1DB954]"
-                          : "bg-[#f8fafc] border-[#cbd5e1] text-[#0f172a] placeholder-[#94a3b8] focus:border-[#1DB954]"
-                      }`}
-                    />
-                    <button
-                      type="submit"
-                      disabled={isImportingLink || !customLinkInput.trim()}
-                      className="px-2.5 py-1.5 rounded-lg bg-[#1DB954] text-black font-semibold text-xs hover:brightness-105 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-                    >
-                      {isImportingLink ? "Adding…" : "Add"}
-                    </button>
-                  </form>
-                </div>
-              )}
             </div>
 
             <div className="flex items-center justify-between gap-3 pt-4 border-t border-[#e2e8f0] dark:border-[#1d2634]">

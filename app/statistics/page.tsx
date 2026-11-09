@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { useTheme } from "../../context/theme-context";
 import { useTimer } from "../../context/timer-context";
 import {
@@ -457,6 +458,75 @@ export default function StatisticsPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Community Leaderboard Teaser */}
+      <div
+        className={`p-4 sm:p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${
+          isDark
+            ? "bg-[#101620] border-[#1d2634] text-[#f1f5f9]"
+            : "bg-white border-[#e2e8f0] text-[#0f172a]"
+        }`}
+      >
+        <div className="flex items-center gap-3.5">
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+            style={{
+              backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+              border: `1px solid ${activeColor}`,
+              color: activeColor,
+            }}
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+              <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+              <path d="M4 22h16" />
+              <path d="M10 14.66V17c0 .55-.45 1-1 1H7" />
+              <path d="M14 14.66V17c0 .55.45 1 1 1h2" />
+              <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+            </svg>
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="font-semibold text-sm sm:text-base tracking-tight">
+                Community Focus Leaderboard
+              </h2>
+              <span
+                className="text-[10px] font-mono uppercase tracking-wider"
+                style={{ color: activeColor }}
+              >
+                Standings
+              </span>
+            </div>
+            <p
+              className={`text-xs mt-0.5 ${
+                isDark ? "text-[#7e8c9f]" : "text-[#64748b]"
+              }`}
+            >
+              Real database standings showing your position, who is directly above you, and first place.
+            </p>
+          </div>
+        </div>
+
+        <Link
+          href="/leaderboard"
+          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-90 active:scale-95 shrink-0 focus-visible:outline-none"
+          style={{
+            backgroundColor: activeColor,
+            color: isDark && mode === "focus" ? "#00201d" : "#ffffff",
+          }}
+        >
+          <span>View Standings</span>
+          <span>→</span>
+        </Link>
       </div>
 
       {/* Gamification Achievements & Badges */}

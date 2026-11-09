@@ -710,3 +710,82 @@ Supported `action` values: `"play"`, `"resume"`, `"pause"`, `"next"`, `"prev"`, 
   "status": 204
 }
 ```
+
+---
+
+## 8. Leaderboard & Social Flow Endpoints
+
+### 8.1 Fetch Community Leaderboard
+Computes real-time rankings across all participants based on focus XP, deep work hours, or daily streaks. Returns the first-place leader (#1), the current user's exact position and percentile, the competitor directly above them with the overtake margin, and surrounding standings.
+
+- **Method**: `GET`
+- **Path**: `/api/leaderboard`
+- **Query Parameters**:
+  - `metric` *(optional)*: `"xp"` (default), `"hours"`, or `"streak"`.
+  - `timeframe` *(optional)*: `"all_time"` (default), `"this_month"`, or `"this_week"`.
+  - `guestXp` *(optional)*: Local XP score for guest / unauthenticated users.
+  - `guestHours` *(optional)*: Local focus hours.
+  - `guestStreak` *(optional)*: Local streak count.
+  - `guestLevel` *(optional)*: Local user level.
+  - `guestName` *(optional)*: Display name for the local user.
+
+#### Response (`200 OK`)
+```json
+{
+  "success": true,
+  "data": {
+    "metric": "xp",
+    "timeframe": "all_time",
+    "totalParticipants": 25,
+    "firstPlace": {
+      "rank": 1,
+      "id": "contender-1",
+      "name": "Elena Vance",
+      "level": 32,
+      "levelTitle": "Zen Master",
+      "score": 18450,
+      "scoreDisplay": "18,450 XP",
+      "focusHours": 124.5,
+      "streak": 28,
+      "shieldsRepelled": 412,
+      "isCurrentUser": false
+    },
+    "currentUser": {
+      "rank": 14,
+      "id": "user_abc",
+      "name": "Alex Mercer",
+      "level": 4,
+      "levelTitle": "Novice Focus",
+      "score": 820,
+      "scoreDisplay": "820 XP",
+      "focusHours": 9.2,
+      "streak": 3,
+      "shieldsRepelled": 22,
+      "percentile": 56,
+      "isCurrentUser": true
+    },
+    "userAbove": {
+      "entry": {
+        "rank": 13,
+        "name": "Zara Novak",
+        "score": 950,
+        "scoreDisplay": "950 XP"
+      },
+      "diff": 130,
+      "diffDisplay": "130 XP to overtake"
+    },
+    "userBelow": {
+      "entry": {
+        "rank": 15,
+        "name": "Finnian Murphy",
+        "score": 750,
+        "scoreDisplay": "750 XP"
+      },
+      "diff": 70,
+      "diffDisplay": "70 XP lead"
+    },
+    "topEntries": [...]
+  }
+}
+```
+

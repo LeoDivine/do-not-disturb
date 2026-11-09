@@ -79,6 +79,7 @@ export default function Navbar() {
   const navItems = [
     { label: "Focus", href: "/" },
     { label: "Blocklist", href: "/blocklist" },
+    { label: "Leaderboard", href: "/leaderboard" },
     { label: "Statistics", href: "/statistics" },
     { label: "Connected Apps", href: "/connected-apps" },
     { label: "Settings", href: "/settings" },
@@ -87,6 +88,9 @@ export default function Navbar() {
   const isLinkActive = (href: string) => {
     if (href === "/") {
       return pathname === "/";
+    }
+    if (href === "/leaderboard") {
+      return pathname === "/leaderboard";
     }
     if (href === "/statistics") {
       return pathname === "/statistics";
