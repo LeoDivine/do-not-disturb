@@ -42,6 +42,7 @@ import {
 	subscribeToCurrentPlayingTrack,
 	getCurrentPlayingTrack,
 	ActiveTrackInfo,
+	DEFAULT_TRACK_INFO,
 } from "../lib/sound/current-track-store";
 import { sendSpotifyCommand, switchAudioSource } from "../lib/sound/audio-coordinator";
 import { OPEN_SPOTIFY_WIDGET_EVENT } from "../components/spotify/draggable-spotify-widget";
@@ -195,8 +196,8 @@ export default function DashboardPage() {
 	const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
 	const [ambientPreset, setAmbientPreset] = useState<AcousticPreset>("rain");
 	const [audioVolume, setAudioVolume] = useState<number>(0.65);
-	const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(() =>
-		getStoredSpotifyPreferences(),
+	const [spotifyPrefs, setSpotifyPrefs] = useState<SpotifyStoredPreference>(
+		DEFAULT_SPOTIFY_PREFS,
 	);
 	const [userLevel, setUserLevel] = useState<number>(1);
 
@@ -268,12 +269,16 @@ export default function DashboardPage() {
 
 
 
-	const [currentTrack, setCurrentTrack] = useState<ActiveTrackInfo>(() =>
-		getCurrentPlayingTrack()
-	);
+	const [currentTrack, setCurrentTrack] =
+		useState<ActiveTrackInfo>(DEFAULT_TRACK_INFO);
 
 	// Sync local ambient state with external changes (mini popup window or global triggers)
 	useEffect(() => {
+		const initial = getCurrentPlayingTrack();
+		setCurrentTrack(initial);
+		if (initial.source === "ambient") {
+			setIsAudioPlaying(initial.isPlaying);
+		}
 		return subscribeToCurrentPlayingTrack((track) => {
 			setCurrentTrack(track);
 			if (track.source === "ambient") {
@@ -1270,7 +1275,29 @@ export default function DashboardPage() {
 									<div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
 										<button
 											type="button"
-											onClick={() => sendSpotifyCommand("toggle")}
+											onClick={() => {
+												if (currentTrack.isPlaying && currentTrack.source === "spotify") {
+													sendSpotifyCommand("pause");
+													setCurrentPlayingTrack({
+														...currentTrack,
+														isPlaying: false,
+													});
+												} else {
+													const targetUri =
+														currentTrack.uri ||
+														spotifyPrefs.lastPlayedTrackUri ||
+														spotifyPrefs.selectedPlaylistUri;
+													sendSpotifyCommand("play", targetUri);
+													setCurrentPlayingTrack({
+														...currentTrack,
+														title: currentTrack.title || spotifyPrefs.selectedPlaylistName || "Deep Focus",
+														artist: currentTrack.artist || spotifyPrefs.selectedPlaylistOwner || "Spotify Focus",
+														isPlaying: true,
+														source: "spotify",
+														uri: targetUri,
+													});
+												}
+											}}
 											className="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
 											style={{
 												backgroundColor: isDark ? "#141b24" : "#ffffff",
