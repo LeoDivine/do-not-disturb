@@ -517,10 +517,66 @@ export default function DraggableSpotifyWidget() {
     );
   }, [searchQuery]);
 
-  if (!isMounted) return null;
-
   const isPlayingSpotify =
     Boolean(currentTrack.isPlaying) && currentTrack.source === "spotify";
+
+  const handleTogglePlay = useCallback(() => {
+    if (isPlayingSpotify) {
+      sendSpotifyCommand("pause");
+      setCurrentPlayingTrack({
+        ...currentTrack,
+        isPlaying: false,
+      });
+    } else {
+      const targetUri =
+        currentTrack.uri ||
+        prefs.lastPlayedTrackUri ||
+        prefs.selectedPlaylistUri ||
+        CURATED_FOCUS_PLAYLISTS[0].uri;
+      sendSpotifyCommand("play", targetUri);
+      setCurrentPlayingTrack({
+        ...currentTrack,
+        title: currentTrack.title || prefs.selectedPlaylistName || "Deep Focus",
+        artist: currentTrack.artist || prefs.selectedPlaylistOwner || "Spotify Focus",
+        isPlaying: true,
+        source: "spotify",
+        uri: targetUri,
+      });
+    }
+  }, [isPlayingSpotify, currentTrack, prefs]);
+
+  const handleNextTrack = useCallback(() => {
+    const list = baseTracks;
+    if (list && list.length > 0) {
+      const currentUri = currentTrack.uri || prefs.lastPlayedTrackUri;
+      const currentIndex = list.findIndex((t) => t.uri === currentUri);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % list.length : 0;
+      const nextTrack = list[nextIndex];
+      if (nextTrack) {
+        handleSelectTrack(nextTrack);
+        return;
+      }
+    }
+    sendSpotifyCommand("next");
+  }, [baseTracks, currentTrack.uri, prefs.lastPlayedTrackUri, handleSelectTrack]);
+
+  const handlePrevTrack = useCallback(() => {
+    const list = baseTracks;
+    if (list && list.length > 0) {
+      const currentUri = currentTrack.uri || prefs.lastPlayedTrackUri;
+      const currentIndex = list.findIndex((t) => t.uri === currentUri);
+      const prevIndex =
+        currentIndex > 0 ? currentIndex - 1 : list.length - 1;
+      const prevTrack = list[prevIndex];
+      if (prevTrack) {
+        handleSelectTrack(prevTrack);
+        return;
+      }
+    }
+    sendSpotifyCommand("prev");
+  }, [baseTracks, currentTrack.uri, prefs.lastPlayedTrackUri, handleSelectTrack]);
+
+  if (!isMounted) return null;
 
   // Position popover cleanly within viewport with increased height and comfortable width
   const popoverWidth = Math.min(
@@ -703,7 +759,7 @@ export default function DraggableSpotifyWidget() {
             <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
-                onClick={() => sendSpotifyCommand("prev")}
+                onClick={handlePrevTrack}
                 className="w-7 h-7 rounded-lg flex items-center justify-center text-[#64748b] dark:text-[#7e8c9f] hover:text-current hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
                 title="Previous track"
               >
@@ -714,7 +770,7 @@ export default function DraggableSpotifyWidget() {
 
               <button
                 type="button"
-                onClick={() => sendSpotifyCommand("toggle")}
+                onClick={handleTogglePlay}
                 className="w-8 h-8 rounded-full flex items-center justify-center text-black font-bold transition-transform hover:scale-105 active:scale-95 cursor-pointer shadow-xs"
                 style={{ backgroundColor: "#1DB954" }}
                 title={isPlayingSpotify ? "Pause music" : "Play music"}
@@ -732,7 +788,7 @@ export default function DraggableSpotifyWidget() {
 
               <button
                 type="button"
-                onClick={() => sendSpotifyCommand("next")}
+                onClick={handleNextTrack}
                 className="w-7 h-7 rounded-lg flex items-center justify-center text-[#64748b] dark:text-[#7e8c9f] hover:text-current hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
                 title="Next track"
               >
@@ -1188,11 +1244,17 @@ export default function DraggableSpotifyWidget() {
           </span>
         </div>
 
-        {showNativeEmbed && (
-          <div className="px-2.5 pb-2.5 shrink-0">
-            <SpotifyFocusPlayer compact embedOnly />
-          </div>
-        )}
+        {/* Web Player Container: Always mounted so audio engine, Web Playback SDK, Connect sync, and Embed controller remain active */}
+        <div
+          className={
+            showNativeEmbed
+              ? "px-2.5 pb-2.5 shrink-0"
+              : "w-0 h-0 opacity-0 overflow-hidden absolute pointer-events-none -z-10"
+          }
+          aria-hidden={!showNativeEmbed}
+        >
+          <SpotifyFocusPlayer compact embedOnly />
+        </div>
       </div>
     </>
   );

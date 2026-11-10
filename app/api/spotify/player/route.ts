@@ -405,29 +405,98 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "pause") {
-      const { res } = await fetchWithSpotifyAuth(
+      let { res, session: currentSession } = await fetchWithSpotifyAuth(
         `https://api.spotify.com/v1/me/player/pause${deviceQuery}`,
         { method: "PUT" },
         session
       );
+      if (res.status === 404 && !deviceId) {
+        const devResp = await fetchWithSpotifyAuth(
+          "https://api.spotify.com/v1/me/player/devices",
+          { method: "GET" },
+          currentSession
+        );
+        if (devResp.res.ok) {
+          const devData = await devResp.res.json();
+          const availableDevices = normalizeDevices(devData.devices);
+          const fallback =
+            availableDevices.find((d) => d.isActive) || availableDevices[0];
+          if (fallback) {
+            const retryRes = await fetchWithSpotifyAuth(
+              `https://api.spotify.com/v1/me/player/pause?device_id=${encodeURIComponent(
+                fallback.id
+              )}`,
+              { method: "PUT" },
+              currentSession
+            );
+            res = retryRes.res;
+          }
+        }
+      }
       return buildControlResponse(res);
     }
 
     if (action === "next") {
-      const { res } = await fetchWithSpotifyAuth(
+      let { res, session: currentSession } = await fetchWithSpotifyAuth(
         `https://api.spotify.com/v1/me/player/next${deviceQuery}`,
         { method: "POST" },
         session
       );
+      if (res.status === 404 && !deviceId) {
+        const devResp = await fetchWithSpotifyAuth(
+          "https://api.spotify.com/v1/me/player/devices",
+          { method: "GET" },
+          currentSession
+        );
+        if (devResp.res.ok) {
+          const devData = await devResp.res.json();
+          const availableDevices = normalizeDevices(devData.devices);
+          const fallback =
+            availableDevices.find((d) => d.isActive) || availableDevices[0];
+          if (fallback) {
+            const retryRes = await fetchWithSpotifyAuth(
+              `https://api.spotify.com/v1/me/player/next?device_id=${encodeURIComponent(
+                fallback.id
+              )}`,
+              { method: "POST" },
+              currentSession
+            );
+            res = retryRes.res;
+          }
+        }
+      }
       return buildControlResponse(res);
     }
 
     if (action === "prev") {
-      const { res } = await fetchWithSpotifyAuth(
+      let { res, session: currentSession } = await fetchWithSpotifyAuth(
         `https://api.spotify.com/v1/me/player/previous${deviceQuery}`,
         { method: "POST" },
         session
       );
+      if (res.status === 404 && !deviceId) {
+        const devResp = await fetchWithSpotifyAuth(
+          "https://api.spotify.com/v1/me/player/devices",
+          { method: "GET" },
+          currentSession
+        );
+        if (devResp.res.ok) {
+          const devData = await devResp.res.json();
+          const availableDevices = normalizeDevices(devData.devices);
+          const fallback =
+            availableDevices.find((d) => d.isActive) || availableDevices[0];
+          if (fallback) {
+            const retryRes = await fetchWithSpotifyAuth(
+              `https://api.spotify.com/v1/me/player/previous?device_id=${encodeURIComponent(
+                fallback.id
+              )}`,
+              { method: "POST" },
+              currentSession
+            );
+            res = retryRes.res;
+          }
+        }
+      }
       return buildControlResponse(res);
     }
 
@@ -435,7 +504,7 @@ export async function POST(req: NextRequest) {
       let playPayload: Record<string, any> = {};
       let usedContextOffset = false;
 
-      if (action === "play" && uri) {
+      if ((action === "play" || action === "resume") && uri) {
         if (uri.startsWith("spotify:track:")) {
           if (
             contextUri &&
